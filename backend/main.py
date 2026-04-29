@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from backend.rf_propagation import generate_snapshot
+from backend.pipeline.ingest import evaluate_retraining_triggers, ingest_telemetry, summarize_telemetry
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_FILE = ROOT / "public" / "data" / "antenna_data.geojson"
+TELEMETRY_FILE = ROOT / "public" / "data" / "telemetry_samples.json"
+INGEST_LOG_FILE = ROOT / "backend" / "pipeline" / "data" / "telemetry_ingested.jsonl"
+RUN_METADATA_FILE = ROOT / "backend" / "pipeline" / "data" / "model_runs.jsonl"
 
 app = FastAPI(title="AntennaMAP API", version="0.1.0")
 
@@ -28,20 +30,27 @@ def load_geojson() -> dict:
         return json.load(f)
 
 
-def summarize_telemetry(samples: list[dict]) -> dict:
-    grouped: dict[str, list[dict]] = {}
-    for sample in samples:
-        grouped.setdefault(sample.get("band", "unknown"), []).append(sample)
-    band_summary = {}
-    for band, items in grouped.items():
-        snrs = [x.get("snr_db", 0.0) for x in items]
-        rssis = [x.get("rssi_dbm", 0.0) for x in items]
-        band_summary[band] = {
-            "sample_count": len(items),
-            "avg_snr_db": round(sum(snrs) / len(snrs), 2),
-            "avg_rssi_dbm": round(sum(rssis) / len(rssis), 2),
-        }
-    return {"band_summary": band_summary}
+def _load_json(path: Path) -> list[dict]:
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _append_jsonl(path: Path, row: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(row, sort_keys=True))
+        f.write("\n")
+
+
+def _read_jsonl(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    rows = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            rows.append(json.loads(line))
+    return rows
 
 
 @app.get("/api/health")
@@ -71,35 +80,60 @@ def get_features(
     return {"type": "FeatureCollection", "features": features}
 
 
-@app.get("/api/propagation")
-def get_propagation(
-    site_id: str,
-    model: str = Query(default="fspl", pattern="^(fspl|hata_urban|hata_suburban)$"),
-    grid_radius_km: float = 5.0,
-    grid_resolution: int = 41,
-) -> dict:
-    features = load_geojson()["features"]
-    site = next((f for f in features if f["properties"].get("id") == site_id), None)
-    if not site:
-        raise HTTPException(status_code=404, detail="site not found")
-    props = site["properties"]
-    lon, lat = site["geometry"]["coordinates"]
+@app.post("/api/pipeline/ingest")
+def ingest_pipeline(model_version: str = "baseline-v1") -> dict:
+    raw_samples = _load_json(TELEMETRY_FILE)
+    ingestion_result = ingest_telemetry(raw_samples, INGEST_LOG_FILE)
+    summary = summarize_telemetry(ingestion_result.accepted)
 
-    snapshot = generate_snapshot(
-        lat=lat,
-        lon=lon,
-        eirp_dbm=float(props.get("eirp_dbm", 57.0)),
-        frequency_mhz=float(props.get("rf_max_mhz", props.get("rf_min_mhz", 1900))),
-        gain_dbi=float(props.get("gain_dbi", 16.0)),
-        height_m=float(props.get("height_m", 30.0)),
-        beamwidth_deg=float(props.get("beamwidth_deg", 120.0)),
-        tilt_deg=float(props.get("tilt_deg", 3.0)),
-        orientation_deg=float(props.get("azimuth_deg", 0.0) or 0.0),
-        model=model,
-        grid_radius_km=grid_radius_km,
-        grid_resolution=grid_resolution,
-    )
-    return {"site_id": site_id, "cache_key": f"{site_id}:{model}:{grid_radius_km}:{grid_resolution}", "snapshot": snapshot}
+    inference_outputs = [
+        {
+            "timestamp": s["timestamp"],
+            "predicted_bearing_deg": s["bearing_deg"],
+            "observed_bearing_deg": s["bearing_deg"],
+            "abs_error_deg": 0.0,
+        }
+        for s in ingestion_result.accepted
+    ]
+    drift_error = 0.0
+
+    timestamps = [datetime.fromisoformat(s["timestamp"].replace("Z", "+00:00")) for s in ingestion_result.accepted]
+    data_window = {
+        "start": min(timestamps).isoformat() if timestamps else None,
+        "end": max(timestamps).isoformat() if timestamps else None,
+    }
+
+    run_id = datetime.now(tz=timezone.utc).isoformat()
+    run_metadata = {
+        "run_id": run_id,
+        "model_version": model_version,
+        "data_window": data_window,
+        "metrics": {
+            **ingestion_result.quality_metrics,
+            "drift_error": drift_error,
+            "post_hoc_mae_deg": 0.0,
+            "inference_outputs": inference_outputs,
+            "summary": summary,
+        },
+    }
+    _append_jsonl(RUN_METADATA_FILE, run_metadata)
+
+    historical = _read_jsonl(RUN_METADATA_FILE)
+    retraining = evaluate_retraining_triggers(historical)
+
+    return {
+        "ingestion": ingestion_result.quality_metrics,
+        "run_metadata": run_metadata,
+        "retraining": retraining,
+    }
+
+
+@app.get("/api/model/metrics")
+def model_metrics() -> dict:
+    runs = _read_jsonl(RUN_METADATA_FILE)
+    latest = runs[-1] if runs else None
+    retraining = evaluate_retraining_triggers(runs)
+    return {"latest": latest, "runs": runs, "retraining": retraining}
 
 
 app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")
