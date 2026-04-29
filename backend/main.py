@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, Query
+from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -148,6 +149,47 @@ def load_geojson() -> dict:
 def _load_json(path: Path) -> list[dict]:
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def load_telemetry_samples() -> list[dict]:
+    return _load_json(TELEMETRY_FILE)
+
+
+def enrich_feature(feature: dict, telemetry: list[dict]) -> dict:
+    _ = telemetry
+    return feature
+
+
+def discover_ollama_models() -> list[str]:
+    req = request.Request("http://127.0.0.1:11434/api/tags", method="GET")
+    try:
+        with request.urlopen(req, timeout=2.0) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except (TimeoutError, error.URLError, json.JSONDecodeError):
+        return []
+    models = payload.get("models", [])
+    return sorted(
+        {
+            item.get("name")
+            for item in models
+            if isinstance(item, dict) and isinstance(item.get("name"), str) and item.get("name")
+        }
+    )
+
+
+def discover_available_models() -> dict[str, list[str]]:
+    return {"ollama": discover_ollama_models(), "python_local": discover_python_local_models()}
+
+
+def run_inference(provider: str, model: str, payload: dict) -> dict:
+    if provider == "ollama":
+        body = json.dumps({"model": model, **payload}).encode("utf-8")
+        req = request.Request("http://127.0.0.1:11434/api/generate", data=body, headers={"Content-Type": "application/json"}, method="POST")
+        with request.urlopen(req, timeout=30.0) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    if provider == "python_local":
+        return {"provider": provider, "model": model, "output": "python-local inference adapter not yet implemented", "input": payload}
+    raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
 
 
 @app.get("/api/health")
