@@ -46,6 +46,22 @@ RUN_METADATA_FILE = ROOT / "backend" / "pipeline" / "data" / "model_runs.jsonl"
 INGEST_ISSUES_FILE = ROOT / "backend" / "pipeline" / "data" / "ingest_issues.jsonl"
 
 app = FastAPI(title="AntennaMAP API", version="0.1.0")
+
+
+def _mock_adapter_fetcher() -> list[dict]:
+    return []
+
+
+sdr_service = SDRIngestService(
+    adapter_fetcher=_mock_adapter_fetcher,
+    storage=SDRStoragePaths(
+        raw_jsonl=ROOT / "backend" / "ingest" / "data" / "sdr_raw.jsonl",
+        aggregates_jsonl=ROOT / "backend" / "ingest" / "data" / "sdr_aggregates.jsonl",
+        reject_jsonl=ROOT / "backend" / "ingest" / "data" / "sdr_rejected.jsonl",
+        sqlite_file=ROOT / "backend" / "ingest" / "data" / "sdr_ingest.sqlite3",
+    ),
+    poll_interval_s=1.0,
+)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
