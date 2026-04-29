@@ -1,7 +1,7 @@
 # AntennaMAP Starter Project
 
 This begins the project with a proper application structure:
-- FastAPI backend (`/api/features`, `/api/health`, `/api/model/*`)
+- FastAPI backend (`/api/features`, `/api/health`, `/api/pipeline/ingest`, `/api/model/metrics`)
 - Static frontend using MapLibre for a 3D GPS-style map
 - Sample Miramar data for infrastructure + estimated emitters
 - Triangulation ML pipeline module with deterministic solver + model calibration artifacts
@@ -17,22 +17,26 @@ uvicorn backend.main:app --reload --port 8000
 
 Open `http://localhost:8000`.
 
-## ML / Triangulation Pipeline
+## Ingestion + governance layer
 
-- Module: `backend/ml/triangulation_pipeline.py`
-- Seed telemetry example: `public/data/telemetry_samples.json` (example-only)
-- Dedicated training data directory: `backend/ml/training_data/`
-- Model artifacts/versioned metadata: `backend/ml/models/triangulation_<model_version>.json`
-- Endpoints:
-  - `POST /api/model/train`
-  - `GET /api/model/status`
-  - `POST /api/model/infer`
+- `backend/pipeline/ingest.py` provides append-only telemetry ingestion with strict schema validation.
+- Data quality controls enforce timestamp monotonicity, GPS outlier rejection via speed thresholding, and impossible bearing/signal range filtering.
+- Each ingestion run stores governance metadata (`run_id`, `model_version`, `data_window`, and metrics) in `backend/pipeline/data/model_runs.jsonl`.
+- `/api/model/metrics` exposes the latest and historical model-run metrics for drift tracking.
+- Retraining triggers combine:
+  - sample-volume threshold,
+  - drift-error threshold,
+  - scheduled retrain window.
 
-### Training data schema
+## Privacy and retention policy
 
-See `backend/ml/training_data/README.md` for full schema details.
+- **No payload decoding**: telemetry payload contents are never decoded or persisted.
+- **No personal identifiers**: the pipeline excludes direct personal identifiers (e.g., names, emails, account IDs, device owner IDs, phone numbers).
+- **Collected fields**: only operational radio telemetry fields needed for map/inference quality are accepted (time, band, signal, bearing, and coarse location).
+- **Append-only logs**: accepted telemetry and run metadata are stored as append-only JSONL to preserve lineage and post-hoc auditability.
+- **Retention baseline**: keep raw append-only logs for 90 days by default, and retain aggregate drift/retraining metrics longer for model governance.
 
-### Current scope
+## Current scope
 
 - Click infrastructure and estimated emitter objects for metadata
 - Time cutoff slider for timestamp filtering
