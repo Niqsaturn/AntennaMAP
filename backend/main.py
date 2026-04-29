@@ -3,37 +3,26 @@ from __future__ import annotations
 import json
 import threading
 import time
+import yaml
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib import error, request
 
-from fastapi import FastAPI, Query
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
+from backend.foxhunt.models import FoxHuntObservation
+from backend.foxhunt.service import FoxHuntService
+from backend.geometry.rf_overlays import build_overlay_geometries
+from backend.rf_propagation import ModelName, generate_snapshot
 from backend.ingest.infrastructure import ingest_infrastructure
+from backend.ingest.sdr_ingest import SDRIngestService, SDRStoragePaths
 from backend.ingest.storage import append_jsonl, read_jsonl
 from backend.ingest.telemetry import ingest_telemetry
+from backend.pipeline.compliance import COMPLIANCE_POLICY
 from backend.pipeline.ingest import evaluate_retraining_triggers, summarize_telemetry
-
-from backend.geometry.rf_overlays import build_overlay_geometries
-
-def load_telemetry_samples() -> list[dict]:
-    if not TELEMETRY_FILE.exists():
-        return []
-    return _load_json(TELEMETRY_FILE)
-
-def enrich_feature(feature: dict, telemetry: list[dict]) -> dict:
-    enriched = {**feature}
-    props = {**feature.get("properties", {})}
-    if feature.get("geometry", {}).get("type") == "Point":
-        props["beamwidth_deg"] = props.get("beamwidth_deg") or (360 if props.get("directionality") == "Omni" else 80)
-        props["ray_length_m"] = props.get("ray_length_m") or (750 if props.get("kind") == "estimate" else 1000)
-        props["wedge_radius_m"] = props.get("wedge_radius_m") or (900 if props.get("kind") == "estimate" else 1400)
-        props["overlay_geometries"] = build_overlay_geometries({"type":"Feature","geometry":feature.get("geometry"),"properties":props})
-    enriched["properties"] = props
-    return enriched
-
 from backend.training.trainer import train_single_triangulation_baseline
 from backend.training.triangulation_baseline import estimate_single_operator
 
@@ -44,8 +33,10 @@ INGEST_LOG_FILE = ROOT / "backend" / "pipeline" / "data" / "telemetry_ingested.j
 INFRA_INGEST_FILE = ROOT / "backend" / "pipeline" / "data" / "infrastructure_ingested.jsonl"
 RUN_METADATA_FILE = ROOT / "backend" / "pipeline" / "data" / "model_runs.jsonl"
 INGEST_ISSUES_FILE = ROOT / "backend" / "pipeline" / "data" / "ingest_issues.jsonl"
-
 SDR_CAPABILITIES_FILE = ROOT / "backend" / "sdr" / "capabilities.yaml"
+MODELS_DIR = ROOT / "models"
+RUNTIME_CONFIG_FILE = ROOT / "backend" / "pipeline" / "data" / "runtime_config.json"
+TRAINING_STATUS_FILE = ROOT / "backend" / "pipeline" / "data" / "training_status.json"
 
 
 class SDRConfigureRequest(BaseModel):
@@ -247,12 +238,41 @@ def _load_json(path: Path) -> list[dict]:
 
 
 def load_telemetry_samples() -> list[dict]:
+    if not TELEMETRY_FILE.exists():
+        return []
     return _load_json(TELEMETRY_FILE)
 
 
 def enrich_feature(feature: dict, telemetry: list[dict]) -> dict:
     _ = telemetry
-    return feature
+    enriched = {**feature}
+    props = {**feature.get("properties", {})}
+    if feature.get("geometry", {}).get("type") == "Point":
+        props["beamwidth_deg"] = props.get("beamwidth_deg") or (360 if props.get("directionality") == "Omni" else 80)
+        props["ray_length_m"] = props.get("ray_length_m") or (750 if props.get("kind") == "estimate" else 1000)
+        props["wedge_radius_m"] = props.get("wedge_radius_m") or (900 if props.get("kind") == "estimate" else 1400)
+        props["overlay_geometries"] = build_overlay_geometries({"type": "Feature", "geometry": feature.get("geometry"), "properties": props})
+    enriched["properties"] = props
+    return enriched
+
+
+def policy_status() -> dict:
+    return {
+        "policy_id": COMPLIANCE_POLICY["policy_id"],
+        "metadata_only": COMPLIANCE_POLICY["metadata_only"],
+        "retention_days": COMPLIANCE_POLICY["retention_days"],
+    }
+
+
+def _load_runtime_config() -> dict:
+    if RUNTIME_CONFIG_FILE.exists():
+        return json.loads(RUNTIME_CONFIG_FILE.read_text(encoding="utf-8"))
+    return {"selected_method": "single_triangulation_baseline", "selected_model": "baseline-v1"}
+
+
+def _write_training_status(status: dict) -> None:
+    TRAINING_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    TRAINING_STATUS_FILE.write_text(json.dumps(status, indent=2), encoding="utf-8")
 
 
 def discover_ollama_models() -> list[str]:
@@ -272,6 +292,10 @@ def discover_ollama_models() -> list[str]:
     )
 
 
+def discover_python_local_models() -> list[str]:
+    return sorted(f.stem for f in MODELS_DIR.glob("*.json")) if MODELS_DIR.exists() else []
+
+
 def discover_available_models() -> dict[str, list[str]]:
     return {"ollama": discover_ollama_models(), "python_local": discover_python_local_models()}
 
@@ -279,7 +303,12 @@ def discover_available_models() -> dict[str, list[str]]:
 def run_inference(provider: str, model: str, payload: dict) -> dict:
     if provider == "ollama":
         body = json.dumps({"model": model, **payload}).encode("utf-8")
-        req = request.Request("http://127.0.0.1:11434/api/generate", data=body, headers={"Content-Type": "application/json"}, method="POST")
+        req = request.Request(
+            "http://127.0.0.1:11434/api/generate",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
         with request.urlopen(req, timeout=30.0) as resp:
             return json.loads(resp.read().decode("utf-8"))
     if provider == "python_local":
@@ -395,8 +424,6 @@ def model_metrics() -> dict:
     return {"latest": latest, "runs": runs, "retraining": retraining}
 
 
-
-
 @app.post("/api/training/start")
 def start_training(method: str = "single_triangulation_baseline") -> dict:
     if method != "single_triangulation_baseline":
@@ -410,7 +437,7 @@ def start_training(method: str = "single_triangulation_baseline") -> dict:
     runtime["selected_model"] = artifact["model_name"]
     RUNTIME_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     RUNTIME_CONFIG_FILE.write_text(json.dumps(runtime, indent=2), encoding="utf-8")
-    _append_jsonl(RUN_METADATA_FILE, {"run_id": datetime.now(tz=timezone.utc).isoformat(), "training": artifact})
+    append_jsonl(RUN_METADATA_FILE, [{"run_id": datetime.now(tz=timezone.utc).isoformat(), "training": artifact}])
     _write_training_status({"status": "completed", "method": method, "completed_at": datetime.now(tz=timezone.utc).isoformat(), "metrics": artifact["metrics"]})
     return {"status": "started", "method": method, "artifact": artifact}
 
@@ -427,6 +454,68 @@ def training_history() -> dict:
     files = sorted(MODELS_DIR.glob("single_triangulation_baseline_*.json"))
     history = [json.loads(f.read_text(encoding="utf-8")) for f in files]
     return {"history": history, "count": len(history)}
+
+
+@app.post("/api/foxhunt/session/start")
+def foxhunt_start_session() -> dict:
+    session = foxhunt_service.start_session()
+    return session.model_dump(mode="json")
+
+
+@app.get("/api/foxhunt/session/{session_id}")
+def foxhunt_get_session(session_id: str) -> dict:
+    if session_id not in foxhunt_service.sessions:
+        raise HTTPException(status_code=404, detail="session not found")
+    return foxhunt_service.get_session(session_id).model_dump(mode="json")
+
+
+@app.post("/api/foxhunt/session/stop")
+def foxhunt_stop_session(session_id: str) -> dict:
+    if session_id not in foxhunt_service.sessions:
+        raise HTTPException(status_code=404, detail="session not found")
+    return foxhunt_service.stop_session(session_id).model_dump(mode="json")
+
+
+@app.post("/api/foxhunt/session/{session_id}/observation")
+def foxhunt_add_observation(session_id: str, observation: FoxHuntObservation) -> dict:
+    if session_id not in foxhunt_service.sessions:
+        raise HTTPException(status_code=404, detail="session not found")
+    session = foxhunt_service.append_observation(session_id, observation)
+    return session.model_dump(mode="json")
+
+
+@app.get("/api/propagation")
+def propagation_snapshot(site_id: str, model: ModelName = "fspl") -> dict:
+    data = load_geojson()
+    feature = next(
+        (f for f in data.get("features", []) if f.get("properties", {}).get("id") == site_id),
+        None,
+    )
+    if feature is None:
+        raise HTTPException(status_code=404, detail=f"site_id '{site_id}' not found")
+
+    coords = feature["geometry"]["coordinates"]
+    lon, lat = coords[0], coords[1]
+    props = feature.get("properties", {})
+    freq = ((props.get("rf_min_mhz") or 900) + (props.get("rf_max_mhz") or 2600)) / 2.0
+    beamwidth = float(props.get("beamwidth_deg") or 360)
+    orientation = float(props.get("azimuth_deg") or 0)
+
+    snapshot = generate_snapshot(
+        lat=lat,
+        lon=lon,
+        eirp_dbm=43.0,
+        frequency_mhz=freq,
+        gain_dbi=15.0,
+        height_m=30.0,
+        beamwidth_deg=beamwidth,
+        tilt_deg=0.0,
+        orientation_deg=orientation,
+        model=model,
+        grid_radius_km=5.0,
+        grid_resolution=41,
+    )
+    return {"site_id": site_id, "snapshot": snapshot}
 
 
 app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")

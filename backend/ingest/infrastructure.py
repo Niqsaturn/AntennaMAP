@@ -16,7 +16,7 @@ class Geometry(BaseModel):
 
 
 class FeatureProperties(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(min_length=1)
     kind: str = Field(pattern="^(infrastructure|estimate)$")
