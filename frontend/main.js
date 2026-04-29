@@ -1,12 +1,4 @@
-const map = new maplibregl.Map({
-  container: 'map',
-  style: 'https://demotiles.maplibre.org/style.json',
-  center: [-80.27, 25.97],
-  zoom: 11,
-  pitch: 58,
-  bearing: -20,
-  antialias: true,
-});
+const map = new maplibregl.Map({ container: 'map', style: 'https://demotiles.maplibre.org/style.json', center: [-80.27, 25.97], zoom: 11, pitch: 58, bearing: -20, antialias: true });
 
 const details = document.getElementById('details');
 const infraToggle = document.getElementById('infraToggle');
@@ -17,43 +9,57 @@ const confidenceToggle = document.getElementById('confidenceToggle');
 const timeRange = document.getElementById('timeRange');
 const timeLabel = document.getElementById('timeLabel');
 const modelSelect = document.getElementById('propModel');
+const provenance = document.getElementById('provenance');
+const occupancyTrend = document.getElementById('occupancyTrend');
+const spectralStats = document.getElementById('spectralStats');
+const waterfall = document.getElementById('waterfall');
+const tabs = document.querySelectorAll('.tab');
+const tabPanels = document.querySelectorAll('.tab-panel');
 let allFeatures = [];
 let sortedTimes = [];
 let selectedSiteId = null;
 
-const inferredHtml = (p) => {
-  const e = p.estimated_elements || {};
-  return `Antenna Type: ${p.antenna_type ?? 'unknown'} (${((p.type_confidence ?? 0) * 100).toFixed(0)}%)<br>` +
-    `Beamwidth: ${e.estimated_beamwidth_deg ?? 'N/A'}°<br>` +
-    `Orientation: ${e.array_orientation_deg ?? 'N/A'}°<br>` +
-    `Sectors: ${e.sector_count ?? 'N/A'}<br>` +
-    `Tilt: ${e.tilt_estimate_deg ?? 'N/A'}°<br>` +
-    `Polarization: ${e.polarization_class ?? 'N/A'}<br>` +
-    `Gain: ${e.gain_bucket ?? 'N/A'}`;
-};
-
-const popupHtml = (p) => p.kind === 'infrastructure'
-  ? `<strong>${p.name}</strong><br>ID: ${p.id}<br>Type: ${p.structure_type}<br>Pattern: ${p.directionality}<br>Azimuth: ${p.azimuth_deg ?? 'N/A'}°<br>RF: ${p.rf_min_mhz}-${p.rf_max_mhz} MHz<br>${inferredHtml(p)}<br>Timestamp: ${p.timestamp}`
-  : `<strong>${p.name}</strong><br>ID: ${p.id}<br>Band: ${p.freq_band}<br>Confidence: ${(p.confidence_score * 100).toFixed(0)}%<br>Ellipse: ${p.confidence_major_m}m × ${p.confidence_minor_m}m<br>Samples: ${p.sample_count}<br>${inferredHtml(p)}<br>Timestamp: ${p.timestamp}`;
-
-const beamHtml = (p) => `<strong>${p.source_name}</strong><br>Source: ${p.source_id} (${p.source_kind})<br>Layer: ${p.beam_type}<br>Azimuth: ${p.azimuth_deg.toFixed(1)}°<br>Beamwidth: ${p.beamwidth_deg.toFixed(1)}°<br>Tilt proxy: ${p.tilt_proxy_deg.toFixed(1)}°<br>Power class: ${p.power_class}<br>Radius: ${p.radius_m.toFixed(1)} m<br>Timestamp: ${p.timestamp}<br>Assumptions: ${p.assumptions}`;
+const popupHtml = (p) => `<strong>${p.name}</strong><br>ID: ${p.id}<br>Kind: ${p.kind}<br>Timestamp: ${p.timestamp}`;
 
 function cutoffFromSlider() {
   const idx = Math.floor((Number(timeRange.value) / 100) * (sortedTimes.length - 1));
   return sortedTimes[idx] ?? sortedTimes[sortedTimes.length - 1];
 }
 
-async function refreshPropagation() {
-  if (!selectedSiteId || !map.getSource('prop-contours')) return;
-  const params = new URLSearchParams({ site_id: selectedSiteId, model: modelSelect.value });
-  const p = await fetch(`/api/propagation?${params}`).then(r => r.json());
-  const contours = Object.entries(p.snapshot.contours).map(([zone, info]) => ({
-    type: 'Feature',
-    properties: { zone },
-    geometry: info.polygon,
+function renderWaterfall(payload) {
+  const ctx = waterfall.getContext('2d');
+  const { rows, times } = payload;
+  const cellW = waterfall.width / Math.max(times.length, 1);
+  const cellH = waterfall.height / Math.max(rows.length, 1);
+  ctx.clearRect(0, 0, waterfall.width, waterfall.height);
+  rows.forEach((row, y) => row.values.forEach((value, x) => {
+    const norm = value === null ? 0 : Math.max(0, Math.min(1, (value + 110) / 60));
+    const hue = 240 - (norm * 240);
+    ctx.fillStyle = value === null ? '#243144' : `hsl(${hue}, 80%, 50%)`;
+    ctx.fillRect(x * cellW, y * cellH, cellW, cellH);
   }));
-  map.getSource('prop-contours').setData({ type: 'FeatureCollection', features: contours });
-  details.innerHTML = `${details.innerHTML}<hr><strong>Propagation:</strong> ${p.snapshot.model}<br>Uncertainty ±${p.snapshot.uncertainty.sigma_db} dB`;
+}
+
+function renderOccupancy(bands) {
+  const maxSamples = Math.max(...bands.map((b) => b.sample_count), 1);
+  occupancyTrend.innerHTML = bands.map((band) => `<div class="chart-row">${band.band} (${band.avg_snr_db.toFixed(1)} dB)<span class="bar" style="width:${(band.sample_count / maxSamples) * 180}px"></span></div>`).join('');
+}
+
+async function refreshSpectrum() {
+  const cutoff = cutoffFromSlider();
+  const params = new URLSearchParams({ timestamp_lte: cutoff });
+  if (selectedSiteId) params.set('site_id', selectedSiteId);
+
+  const [waterfallData, occupancyData] = await Promise.all([
+    fetch(`/api/spectrum/waterfall?${params}`).then((r) => r.json()),
+    fetch(`/api/spectrum/occupancy?${params}`).then((r) => r.json()),
+  ]);
+
+  renderWaterfall(waterfallData);
+  renderOccupancy(occupancyData.bands);
+  spectralStats.innerHTML = `<strong>Spectral stats</strong><br>Site: ${occupancyData.site_id ?? 'none'}<br>Total samples: ${occupancyData.spectral_stats.total_samples}<br>Strongest band: ${occupancyData.spectral_stats.strongest_band ?? 'N/A'}`;
+  const p = waterfallData.provenance;
+  provenance.textContent = `Provenance: ${p.device_id} · ${p.adapter_type} · samples ${p.sample_count} · freshness ${p.freshness_seconds ?? 'n/a'}s`;
 }
 
 async function refreshSource() {
@@ -61,34 +67,23 @@ async function refreshSource() {
   timeLabel.textContent = `Cutoff: ${cutoff}`;
   const params = new URLSearchParams({ timestamp_lte: cutoff });
 
-  const [featureData, propagationData] = await Promise.all([
-    fetch(`/api/features?${params}`).then((r) => r.json()),
-    fetch(`/api/propagation?${params}`).then((r) => r.json()),
-  ]);
-
-  const filtered = featureData.features.filter((f) => {
-    return (f.properties.kind === 'infrastructure' && infraToggle.checked)
-      || (f.properties.kind === 'estimate' && estToggle.checked);
-  });
-
-  const selectedKinds = [];
-  if (infraToggle.checked) selectedKinds.push('infrastructure');
-  if (estToggle.checked) selectedKinds.push('estimate');
-
-  const propagationFiltered = propagationData.features.filter((f) => {
-    const typeEnabled = (f.properties.beam_type === 'centerline' && beamLinesToggle.checked)
-      || (f.properties.beam_type === 'wedge' && coverageToggle.checked)
-      || (f.properties.beam_type === 'confidence' && confidenceToggle.checked);
-    return typeEnabled && selectedKinds.includes(f.properties.source_kind);
-  });
+  const featureData = await fetch(`/api/features?${params}`).then((r) => r.json());
+  const filtered = featureData.features.filter((f) => (f.properties.kind === 'infrastructure' && infraToggle.checked) || (f.properties.kind === 'estimate' && estToggle.checked));
 
   map.getSource('antennas').setData({ type: 'FeatureCollection', features: filtered });
   if (!selectedSiteId) {
-    const first = filtered.find(f => f.properties.kind === 'infrastructure');
+    const first = filtered.find((f) => f.properties.kind === 'infrastructure');
     selectedSiteId = first?.properties?.id;
   }
-  await refreshPropagation();
+  await refreshSpectrum();
 }
+
+tabs.forEach((tab) => tab.addEventListener('click', () => {
+  tabs.forEach((t) => t.classList.remove('active'));
+  tabPanels.forEach((p) => p.classList.remove('active'));
+  tab.classList.add('active');
+  document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
+}));
 
 map.on('load', async () => {
   map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
@@ -97,11 +92,8 @@ map.on('load', async () => {
   sortedTimes = [...new Set(allFeatures.map((f) => f.properties.timestamp))].sort();
 
   map.addSource('antennas', { type: 'geojson', data: seed });
-  map.addSource('prop-contours', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({ id: 'infra-layer', type: 'circle', source: 'antennas', filter: ['==', ['get', 'kind'], 'infrastructure'], paint: { 'circle-radius': 8, 'circle-color': '#53b7ff', 'circle-stroke-width': 1, 'circle-stroke-color': '#fff' } });
   map.addLayer({ id: 'estimate-layer', type: 'circle', source: 'antennas', filter: ['==', ['get', 'kind'], 'estimate'], paint: { 'circle-radius': 10, 'circle-color': '#ff8459', 'circle-opacity': 0.8, 'circle-stroke-width': 1, 'circle-stroke-color': '#fff' } });
-  map.addLayer({ id: 'prop-fill', type: 'fill', source: 'prop-contours', paint: { 'fill-color': ['match', ['get', 'zone'], 'strong', '#00ff66', 'moderate', '#ffd53d', '#ff4f6d'], 'fill-opacity': 0.18 } });
-  map.addLayer({ id: 'prop-line', type: 'line', source: 'prop-contours', paint: { 'line-color': '#ffffff', 'line-width': 1.2 } });
 
   ['infra-layer', 'estimate-layer'].forEach((layer) => {
     map.on('click', layer, async (e) => {
@@ -110,11 +102,11 @@ map.on('load', async () => {
       details.innerHTML = popupHtml(f.properties);
       if (f.properties.kind === 'infrastructure') {
         selectedSiteId = f.properties.id;
-        await refreshPropagation();
+        await refreshSpectrum();
       }
     });
   });
 
-  [infraToggle, estToggle, timeRange, modelSelect].forEach((el) => el.addEventListener('input', refreshSource));
+  [infraToggle, estToggle, beamLinesToggle, coverageToggle, confidenceToggle, timeRange, modelSelect].forEach((el) => el.addEventListener('input', refreshSource));
   refreshSource();
 });

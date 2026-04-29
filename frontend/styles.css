@@ -6,6 +6,15 @@ html, body { margin: 0; height: 100%; font-family: Arial, sans-serif; }
   border-radius: 10px; padding: 12px;
 }
 .muted { color: #c7d0e0; font-size: 12px; }
-.details { font-size: 13px; margin-top: 10px; min-height: 110px; }
+.details { font-size: 13px; margin-top: 10px; min-height: 70px; }
 label { display: block; margin-top: 8px; font-size: 13px; }
-input[type="range"] { width: 100%; }
+input[type="range"], select { width: 100%; }
+.tabs { display: flex; gap: 6px; margin: 8px 0; }
+.tab { flex: 1; background: #1f2c40; color: #d8e5ff; border: 1px solid #31435f; border-radius: 6px; padding: 6px; cursor: pointer; }
+.tab.active { background: #3f68b8; color: white; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+#waterfall { margin-top: 8px; width: 100%; border: 1px solid #33435a; border-radius: 4px; }
+.chart-block { margin-top: 8px; font-size: 12px; }
+.chart-row { margin-bottom: 6px; }
+.bar { display: inline-block; height: 8px; background: #67cc74; border-radius: 3px; margin-left: 6px; }
