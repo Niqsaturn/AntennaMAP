@@ -43,13 +43,18 @@ Open `http://localhost:8000`.
 - Layer toggles for object categories
 - Informational-only dataset with no private payload content
 
+## Map tile network requirements and offline fallback
 
-## Compliance-first SDR ingestion controls
+The frontend map relies on external style/tile endpoints by default:
+- Primary style: `https://demotiles.maplibre.org/style.json`
+- Backup style: `https://tiles.openfreemap.org/styles/bright`
+- MapLibre assets loaded from `https://unpkg.com`
 
-- **Do-not-decode guarantee (enforced in code):** ingestion rejects any samples containing payload/decode-oriented fields (`payload`, `payload_hex`, `payload_bytes`, `decoded_payload`).
-- **Metadata-only schema:** only timestamp, region, band/frequency, signal quality, bearing, and coarse geolocation are accepted.
-- **Regional legal band allowlist:** ingestion enforces configured frequency windows per region (US/EU/JP defaults).
-- **Audit logging:** start/stop events are emitted for each ingestion run; data-export events are logged for export-oriented endpoints (currently `/api/model/metrics`).
-- **Retention policy:** raw telemetry logs and aggregated governance metrics have independent retention windows (default raw=90 days, aggregated=365 days).
-- **Health transparency:** `/api/health` publishes compliance status and the active policy object, and the UI renders the active policy ID and metadata-only/decode flags.
+For full rendering, clients must be able to reach those domains over HTTPS (TCP 443). If access is blocked, the app now shows an in-UI warning panel and switches to the configured backup style.
 
+### Local/offline fallback plan
+
+1. Vendor MapLibre JS/CSS into `frontend/vendor/` and update `index.html` script/link tags to local files.
+2. Host a local style JSON plus vector/raster tiles (for example from MBTiles via a local tile server such as `tileserver-gl` or equivalent).
+3. Update `frontend/main.js` `MAP_STYLES.primary` to the local style URL (example: `http://localhost:8080/styles/basic/style.json`) and keep an internal backup URL.
+4. Optionally pre-cache the style, sprites, glyphs, and tile responses with a service worker for disconnected operation.

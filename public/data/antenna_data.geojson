@@ -3,7 +3,13 @@
   "features": [
     {
       "type": "Feature",
-      "geometry": {"type": "Point", "coordinates": [-80.282, 25.986]},
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.282,
+          25.986
+        ]
+      },
       "properties": {
         "id": "site-mir-001",
         "kind": "infrastructure",
@@ -13,12 +19,27 @@
         "azimuth_deg": 120,
         "rf_min_mhz": 700,
         "rf_max_mhz": 2600,
-        "timestamp": "2026-04-28T15:20:00Z"
+        "timestamp": "2026-04-28T15:20:00Z",
+        "beamwidth_deg": 80,
+        "ray_length_m": 900,
+        "wedge_radius_m": 1200,
+        "overlay_geometries": {
+          "site_point": null,
+          "direction_ray": null,
+          "sector_wedge": null,
+          "confidence_ellipse": null
+        }
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "Point", "coordinates": [-80.245, 25.978]},
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.245,
+          25.978
+        ]
+      },
       "properties": {
         "id": "site-mir-002",
         "kind": "infrastructure",
@@ -28,12 +49,27 @@
         "azimuth_deg": null,
         "rf_min_mhz": 850,
         "rf_max_mhz": 1900,
-        "timestamp": "2026-04-29T11:05:00Z"
+        "timestamp": "2026-04-29T11:05:00Z",
+        "beamwidth_deg": 360,
+        "ray_length_m": 900,
+        "wedge_radius_m": 1200,
+        "overlay_geometries": {
+          "site_point": null,
+          "direction_ray": null,
+          "sector_wedge": null,
+          "confidence_ellipse": null
+        }
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "Point", "coordinates": [-80.263, 25.965]},
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.263,
+          25.965
+        ]
+      },
       "properties": {
         "id": "est-mir-901",
         "kind": "estimate",
@@ -43,12 +79,27 @@
         "confidence_minor_m": 140,
         "confidence_score": 0.76,
         "sample_count": 18,
-        "timestamp": "2026-04-29T09:32:00Z"
+        "timestamp": "2026-04-29T09:32:00Z",
+        "beamwidth_deg": 80,
+        "ray_length_m": 900,
+        "wedge_radius_m": 1200,
+        "overlay_geometries": {
+          "site_point": null,
+          "direction_ray": null,
+          "sector_wedge": null,
+          "confidence_ellipse": null
+        }
       }
     },
     {
       "type": "Feature",
-      "geometry": {"type": "Point", "coordinates": [-80.299, 25.951]},
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.299,
+          25.951
+        ]
+      },
       "properties": {
         "id": "est-mir-902",
         "kind": "estimate",
@@ -58,7 +109,16 @@
         "confidence_minor_m": 220,
         "confidence_score": 0.62,
         "sample_count": 9,
-        "timestamp": "2026-04-27T21:10:00Z"
+        "timestamp": "2026-04-27T21:10:00Z",
+        "beamwidth_deg": 80,
+        "ray_length_m": 900,
+        "wedge_radius_m": 1200,
+        "overlay_geometries": {
+          "site_point": null,
+          "direction_ray": null,
+          "sector_wedge": null,
+          "confidence_ellipse": null
+        }
       }
     }
   ]
