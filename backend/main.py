@@ -80,6 +80,12 @@ def get_features(kind: str | None = Query(default=None, pattern="^(infrastructur
     return {"type": "FeatureCollection", "features": features}
 
 
+@app.get("/api/features/count")
+def get_features_count(kind: str | None = Query(default=None, pattern="^(infrastructure|estimate)?$"), timestamp_lte: str | None = None) -> dict:
+    payload = get_features(kind=kind, timestamp_lte=timestamp_lte)
+    return {"count": len(payload["features"]), "kind": kind, "timestamp_lte": timestamp_lte}
+
+
 @app.post("/api/pipeline/ingest")
 def ingest_pipeline(model_version: str = "baseline-v1") -> dict:
     raw_samples = _load_json(TELEMETRY_FILE)

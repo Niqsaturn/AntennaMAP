@@ -26,6 +26,12 @@
       <option value="hata_urban">Hata (Urban)</option>
       <option value="hata_suburban">Hata (Suburban)</option>
     </select>
+    <div id="mapWarning" class="warning" hidden></div>
+    <div class="status-grid">
+      <div>Base map: <span id="statusBaseMap" class="status warn">loading</span></div>
+      <div>Features: <span id="statusFeatureCount" class="status warn">0</span></div>
+      <div>Assessment loop: <span id="statusAssessmentLoop" class="status warn">idle</span></div>
+    </div>
     <div id="details" class="details">Click markers for metadata.</div>
   </aside>
   <script src="https://unpkg.com/maplibre-gl@4.3.2/dist/maplibre-gl.js"></script>
