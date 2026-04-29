@@ -1,107 +1,60 @@
 # AntennaMAP Starter Project
 
-This repository now starts a real application with:
-- FastAPI API for map features and AI assessment status
-- Local continuous RF assessment loop (aggregated telemetry only)
-- Optional Ollama integration for local LLM-assisted emitter estimation
-- MapLibre-based 3D map UI that polls for refreshed estimated emitters across a Miami city-wide seed dataset
+This begins the project with a proper application structure:
+- FastAPI backend (`/api/features`, `/api/health`, `/api/pipeline/ingest`, `/api/model/metrics`)
+- Static frontend using MapLibre for a 3D GPS-style map
+- Sample Miramar data for infrastructure + estimated emitters
+- Triangulation ML pipeline module with deterministic solver + model calibration artifacts
 
-## Privacy boundary
-
-The loop uses only aggregated telemetry metadata (band, RSSI, SNR, bearing, coordinates). It does not decode communication payloads.
-
-## One-command install + run (desktop-friendly)
-
-### macOS / Linux terminal
-
-```bash
-./scripts/install_and_run.sh
-```
-
-### Windows (PowerShell)
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\install_and_run.ps1
-```
-
-### Windows (Command Prompt)
-
-```bat
-scripts\install_and_run.bat
-```
-
-### macOS Finder double-click
-
-Double-click:
-
-```text
-scripts/install_and_run.command
-```
-
-Separated scripts:
-1. `setup_env` installs/updates dependencies and runs tests
-2. `run_server` starts uvicorn from the existing project folder
-
-Then open: `http://127.0.0.1:8000`
-
-## Install directly from GitHub
-
-### macOS / Linux
-
-```bash
-curl -fsSL -o install_from_github.sh https://raw.githubusercontent.com/your-github-username/AntennaMAP/main/scripts/install_from_github.sh
-chmod +x install_from_github.sh
-./install_from_github.sh https://github.com/your-github-username/AntennaMAP.git
-```
-
-### Windows PowerShell
-
-```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/your-github-username/AntennaMAP/main/scripts/install_from_github.ps1 -OutFile install_from_github.ps1
-powershell -ExecutionPolicy Bypass -File .\install_from_github.ps1 -RepoUrl https://github.com/your-github-username/AntennaMAP.git
-```
-
-> Replace `your-github-username` with your GitHub username (repo name stays `AntennaMAP`).
-
-## Manual run (alternative)
+## Run locally
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
-# optional, in another terminal:
-# ollama run llama3.1:8b
-
 uvicorn backend.main:app --reload --port 8000
 ```
 
-## Run tests
+Open `http://localhost:8000`.
 
-```bash
-PYTHONPATH=. pytest -q
-```
+## Ingestion + governance layer
 
-## City coverage
+- `backend/pipeline/ingest.py` provides append-only telemetry ingestion with strict schema validation.
+- Data quality controls enforce timestamp monotonicity, GPS outlier rejection via speed thresholding, and impossible bearing/signal range filtering.
+- Each ingestion run stores governance metadata (`run_id`, `model_version`, `data_window`, and metrics) in `backend/pipeline/data/model_runs.jsonl`.
+- `/api/model/metrics` exposes the latest and historical model-run metrics for drift tracking.
+- Retraining triggers combine:
+  - sample-volume threshold,
+  - drift-error threshold,
+  - scheduled retrain window.
 
-The seed dataset includes synthetic infrastructure and estimate points across the Miami city bounding box for full-city preview rendering.
+## Privacy and retention policy
 
+- **No payload decoding**: telemetry payload contents are never decoded or persisted.
+- **No personal identifiers**: the pipeline excludes direct personal identifiers (e.g., names, emails, account IDs, device owner IDs, phone numbers).
+- **Collected fields**: only operational radio telemetry fields needed for map/inference quality are accepted (time, band, signal, bearing, and coarse location).
+- **Append-only logs**: accepted telemetry and run metadata are stored as append-only JSONL to preserve lineage and post-hoc auditability.
+- **Retention baseline**: keep raw append-only logs for 90 days by default, and retain aggregate drift/retraining metrics longer for model governance.
 
-## Update existing clone
+## Current scope
 
-`install_from_github` scripts now update an existing cloned folder (fetch/checkout/pull) instead of failing when the folder already exists as a git repo.
+- Click infrastructure and estimated emitter objects for metadata
+- Time cutoff slider for timestamp filtering
+- Layer toggles for object categories
+- Informational-only dataset with no private payload content
 
+## Map tile network requirements and offline fallback
 
-## Troubleshooting
+The frontend map relies on external style/tile endpoints by default:
+- Primary style: `https://demotiles.maplibre.org/style.json`
+- Backup style: `https://tiles.openfreemap.org/styles/bright`
+- MapLibre assets loaded from `https://unpkg.com`
 
-If you see `NameError: name 'BaseModel' is not defined`, update to latest and re-run setup:
+For full rendering, clients must be able to reach those domains over HTTPS (TCP 443). If access is blocked, the app now shows an in-UI warning panel and switches to the configured backup style.
 
-```bash
-./scripts/setup_env.sh
-```
+### Local/offline fallback plan
 
-On Windows PowerShell:
-
-```powershell
-.\scripts\setup_env.ps1
-```
+1. Vendor MapLibre JS/CSS into `frontend/vendor/` and update `index.html` script/link tags to local files.
+2. Host a local style JSON plus vector/raster tiles (for example from MBTiles via a local tile server such as `tileserver-gl` or equivalent).
+3. Update `frontend/main.js` `MAP_STYLES.primary` to the local style URL (example: `http://localhost:8080/styles/basic/style.json`) and keep an internal backup URL.
+4. Optionally pre-cache the style, sprites, glyphs, and tile responses with a service worker for disconnected operation.

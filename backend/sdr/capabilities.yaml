@@ -1,0 +1,38 @@
+default_model: rtl-sdr-v3
+models:
+  rtl-sdr-v3:
+    label: RTL-SDR Blog V3
+    constraints:
+      sample_rate_sps:
+        min: 250000
+        max: 3200000
+      center_freq_hz:
+        min: 500000
+        max: 1766000000
+      bandwidth_hz:
+        min: 200000
+        max: 2800000
+      gain_db:
+        min: 0
+        max: 49.6
+      ppm:
+        min: -100
+        max: 100
+  hackrf-one:
+    label: HackRF One
+    constraints:
+      sample_rate_sps:
+        min: 2000000
+        max: 20000000
+      center_freq_hz:
+        min: 1000000
+        max: 6000000000
+      bandwidth_hz:
+        min: 1750000
+        max: 28000000
+      gain_db:
+        min: 0
+        max: 62
+      ppm:
+        min: -100
+        max: 100
