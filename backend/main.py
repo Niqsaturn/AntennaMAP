@@ -15,6 +15,24 @@ from backend.ingest.storage import append_jsonl, read_jsonl
 from backend.ingest.telemetry import ingest_telemetry
 from backend.pipeline.ingest import evaluate_retraining_triggers, summarize_telemetry
 
+from backend.geometry.rf_overlays import build_overlay_geometries
+
+def load_telemetry_samples() -> list[dict]:
+    if not TELEMETRY_FILE.exists():
+        return []
+    return _load_json(TELEMETRY_FILE)
+
+def enrich_feature(feature: dict, telemetry: list[dict]) -> dict:
+    enriched = {**feature}
+    props = {**feature.get("properties", {})}
+    if feature.get("geometry", {}).get("type") == "Point":
+        props["beamwidth_deg"] = props.get("beamwidth_deg") or (360 if props.get("directionality") == "Omni" else 80)
+        props["ray_length_m"] = props.get("ray_length_m") or (750 if props.get("kind") == "estimate" else 1000)
+        props["wedge_radius_m"] = props.get("wedge_radius_m") or (900 if props.get("kind") == "estimate" else 1400)
+        props["overlay_geometries"] = build_overlay_geometries({"type":"Feature","geometry":feature.get("geometry"),"properties":props})
+    enriched["properties"] = props
+    return enriched
+
 ROOT = Path(__file__).resolve().parents[1]
 DATA_FILE = ROOT / "public" / "data" / "antenna_data.geojson"
 TELEMETRY_FILE = ROOT / "public" / "data" / "telemetry_samples.json"
