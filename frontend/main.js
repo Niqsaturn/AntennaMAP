@@ -1,120 +1,89 @@
-const map = new maplibregl.Map({
-  container: 'map',
-  style: 'https://demotiles.maplibre.org/style.json',
-  center: [-80.27, 25.97],
-  zoom: 11,
-  pitch: 58,
-  bearing: -20,
-  antialias: true,
-});
+const map = new maplibregl.Map({ container: 'map', style: 'https://demotiles.maplibre.org/style.json', center: [-80.27, 25.97], zoom: 11, pitch: 58, bearing: -20, antialias: true });
 
 const details = document.getElementById('details');
 const infraToggle = document.getElementById('infraToggle');
 const estToggle = document.getElementById('estToggle');
-const beamLinesToggle = document.getElementById('beamLinesToggle');
-const coverageToggle = document.getElementById('coverageToggle');
+const rayToggle = document.getElementById('rayToggle');
+const sectorToggle = document.getElementById('sectorToggle');
 const confidenceToggle = document.getElementById('confidenceToggle');
 const timeRange = document.getElementById('timeRange');
 const timeLabel = document.getElementById('timeLabel');
 const modelSelect = document.getElementById('propModel');
+const loopStatus = document.getElementById('loopStatus');
 let allFeatures = [];
 let sortedTimes = [];
-let selectedSiteId = null;
 
-const inferredHtml = (p) => {
-  const e = p.estimated_elements || {};
-  return `Antenna Type: ${p.antenna_type ?? 'unknown'} (${((p.type_confidence ?? 0) * 100).toFixed(0)}%)<br>` +
-    `Beamwidth: ${e.estimated_beamwidth_deg ?? 'N/A'}°<br>` +
-    `Orientation: ${e.array_orientation_deg ?? 'N/A'}°<br>` +
-    `Sectors: ${e.sector_count ?? 'N/A'}<br>` +
-    `Tilt: ${e.tilt_estimate_deg ?? 'N/A'}°<br>` +
-    `Polarization: ${e.polarization_class ?? 'N/A'}<br>` +
-    `Gain: ${e.gain_bucket ?? 'N/A'}`;
-};
-
-const popupHtml = (p) => p.kind === 'infrastructure'
-  ? `<strong>${p.name}</strong><br>ID: ${p.id}<br>Type: ${p.structure_type}<br>Pattern: ${p.directionality}<br>Azimuth: ${p.azimuth_deg ?? 'N/A'}°<br>RF: ${p.rf_min_mhz}-${p.rf_max_mhz} MHz<br>${inferredHtml(p)}<br>Timestamp: ${p.timestamp}`
-  : `<strong>${p.name}</strong><br>ID: ${p.id}<br>Band: ${p.freq_band}<br>Confidence: ${(p.confidence_score * 100).toFixed(0)}%<br>Ellipse: ${p.confidence_major_m}m × ${p.confidence_minor_m}m<br>Samples: ${p.sample_count}<br>${inferredHtml(p)}<br>Timestamp: ${p.timestamp}`;
-
-const beamHtml = (p) => `<strong>${p.source_name}</strong><br>Source: ${p.source_id} (${p.source_kind})<br>Layer: ${p.beam_type}<br>Azimuth: ${p.azimuth_deg.toFixed(1)}°<br>Beamwidth: ${p.beamwidth_deg.toFixed(1)}°<br>Tilt proxy: ${p.tilt_proxy_deg.toFixed(1)}°<br>Power class: ${p.power_class}<br>Radius: ${p.radius_m.toFixed(1)} m<br>Timestamp: ${p.timestamp}<br>Assumptions: ${p.assumptions}`;
+const popupHtml = (p) => `<strong>${p.name}</strong><br>ID: ${p.id}<br>Kind: ${p.kind}<br>Azimuth: ${p.azimuth_deg ?? 'N/A'}°<br>Beamwidth: ${p.beamwidth_deg ?? 'N/A'}°<br>Ray length: ${p.ray_length_m ?? 'N/A'} m<br>Sector radius: ${p.wedge_radius_m ?? 'N/A'} m<br>Confidence ellipse: ${p.confidence_major_m ?? 'N/A'}m × ${p.confidence_minor_m ?? 'N/A'}m`;
 
 function cutoffFromSlider() {
   const idx = Math.floor((Number(timeRange.value) / 100) * (sortedTimes.length - 1));
   return sortedTimes[idx] ?? sortedTimes[sortedTimes.length - 1];
 }
 
-async function refreshPropagation() {
-  if (!selectedSiteId || !map.getSource('prop-contours')) return;
-  const params = new URLSearchParams({ site_id: selectedSiteId, model: modelSelect.value });
-  const p = await fetch(`/api/propagation?${params}`).then(r => r.json());
-  const contours = Object.entries(p.snapshot.contours).map(([zone, info]) => ({
-    type: 'Feature',
-    properties: { zone },
-    geometry: info.polygon,
-  }));
-  map.getSource('prop-contours').setData({ type: 'FeatureCollection', features: contours });
-  details.innerHTML = `${details.innerHTML}<hr><strong>Propagation:</strong> ${p.snapshot.model}<br>Uncertainty ±${p.snapshot.uncertainty.sigma_db} dB`;
+function asFeature(siteFeature, geometry, overlayType) {
+  if (!geometry) return null;
+  return { type: 'Feature', geometry, properties: { ...siteFeature.properties, overlay_type: overlayType } };
+}
+
+
+async function refreshLoopStatus() {
+  try {
+    const status = await fetch('/api/loop/status').then((r) => r.json());
+    const lastSuccess = status.last_run?.last_successful_run_at ?? 'never';
+    loopStatus.innerHTML = `<strong>Loop:</strong> ${status.active ? 'running' : 'paused'}<br><strong>Provider:</strong> ${status.config.provider}<br><strong>Model:</strong> ${status.config.model}<br><strong>Interval:</strong> ${status.config.interval_seconds}s<br><strong>Last successful run:</strong> ${lastSuccess}`;
+  } catch (_err) {
+    loopStatus.textContent = 'Loop: unavailable';
+  }
 }
 
 async function refreshSource() {
+  if (!sourcesInitialized) return;
+
+  setAssessmentLoopStatus(true);
   const cutoff = cutoffFromSlider();
   timeLabel.textContent = `Cutoff: ${cutoff}`;
-  const params = new URLSearchParams({ timestamp_lte: cutoff });
+  const data = await fetch(`/api/features?timestamp_lte=${encodeURIComponent(cutoff)}`).then((r) => r.json());
+  const visibleSites = data.features.filter((f) => (f.properties.kind === 'infrastructure' && infraToggle.checked) || (f.properties.kind === 'estimate' && estToggle.checked));
 
-  const [featureData, propagationData] = await Promise.all([
-    fetch(`/api/features?${params}`).then((r) => r.json()),
-    fetch(`/api/propagation?${params}`).then((r) => r.json()),
-  ]);
-
-  const filtered = featureData.features.filter((f) => {
-    return (f.properties.kind === 'infrastructure' && infraToggle.checked)
-      || (f.properties.kind === 'estimate' && estToggle.checked);
+  const rays = [];
+  const sectors = [];
+  const confidence = [];
+  visibleSites.forEach((f) => {
+    const overlays = f.properties.overlay_geometries || {};
+    const ray = asFeature(f, overlays.direction_ray, 'direction_ray');
+    const sector = asFeature(f, overlays.sector_wedge, 'sector_wedge');
+    const ellipse = asFeature(f, overlays.confidence_ellipse, 'confidence_ellipse');
+    if (ray) rays.push(ray);
+    if (sector) sectors.push(sector);
+    if (ellipse) confidence.push(ellipse);
   });
 
-  const selectedKinds = [];
-  if (infraToggle.checked) selectedKinds.push('infrastructure');
-  if (estToggle.checked) selectedKinds.push('estimate');
-
-  const propagationFiltered = propagationData.features.filter((f) => {
-    const typeEnabled = (f.properties.beam_type === 'centerline' && beamLinesToggle.checked)
-      || (f.properties.beam_type === 'wedge' && coverageToggle.checked)
-      || (f.properties.beam_type === 'confidence' && confidenceToggle.checked);
-    return typeEnabled && selectedKinds.includes(f.properties.source_kind);
-  });
-
-  map.getSource('antennas').setData({ type: 'FeatureCollection', features: filtered });
-  if (!selectedSiteId) {
-    const first = filtered.find(f => f.properties.kind === 'infrastructure');
-    selectedSiteId = first?.properties?.id;
-  }
-  await refreshPropagation();
+  map.getSource('sites').setData({ type: 'FeatureCollection', features: visibleSites });
+  map.getSource('rays').setData({ type: 'FeatureCollection', features: rayToggle.checked ? rays : [] });
+  map.getSource('sectors').setData({ type: 'FeatureCollection', features: sectorToggle.checked ? sectors : [] });
+  map.getSource('confidence').setData({ type: 'FeatureCollection', features: confidenceToggle.checked ? confidence : [] });
 }
 
 map.on('load', async () => {
   map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
   const seed = await fetch('/api/features').then((r) => r.json());
-  allFeatures = seed.features;
-  sortedTimes = [...new Set(allFeatures.map((f) => f.properties.timestamp))].sort();
+  sortedTimes = [...new Set(seed.features.map((f) => f.properties.timestamp))].sort();
 
-  map.addSource('antennas', { type: 'geojson', data: seed });
-  map.addSource('prop-contours', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-  map.addLayer({ id: 'infra-layer', type: 'circle', source: 'antennas', filter: ['==', ['get', 'kind'], 'infrastructure'], paint: { 'circle-radius': 8, 'circle-color': '#53b7ff', 'circle-stroke-width': 1, 'circle-stroke-color': '#fff' } });
-  map.addLayer({ id: 'estimate-layer', type: 'circle', source: 'antennas', filter: ['==', ['get', 'kind'], 'estimate'], paint: { 'circle-radius': 10, 'circle-color': '#ff8459', 'circle-opacity': 0.8, 'circle-stroke-width': 1, 'circle-stroke-color': '#fff' } });
-  map.addLayer({ id: 'prop-fill', type: 'fill', source: 'prop-contours', paint: { 'fill-color': ['match', ['get', 'zone'], 'strong', '#00ff66', 'moderate', '#ffd53d', '#ff4f6d'], 'fill-opacity': 0.18 } });
-  map.addLayer({ id: 'prop-line', type: 'line', source: 'prop-contours', paint: { 'line-color': '#ffffff', 'line-width': 1.2 } });
+  map.addSource('sites', { type: 'geojson', data: seed });
+  map.addSource('rays', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('sectors', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('confidence', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
 
-  ['infra-layer', 'estimate-layer'].forEach((layer) => {
-    map.on('click', layer, async (e) => {
-      const f = e.features?.[0];
-      if (!f) return;
-      details.innerHTML = popupHtml(f.properties);
-      if (f.properties.kind === 'infrastructure') {
-        selectedSiteId = f.properties.id;
-        await refreshPropagation();
-      }
-    });
-  });
+  map.addLayer({ id: 'infra-layer', type: 'circle', source: 'sites', filter: ['==', ['get', 'kind'], 'infrastructure'], paint: { 'circle-radius': 7, 'circle-color': '#4ea8ff', 'circle-stroke-width': 1, 'circle-stroke-color': '#fff' } });
+  map.addLayer({ id: 'estimate-layer', type: 'circle', source: 'sites', filter: ['==', ['get', 'kind'], 'estimate'], paint: { 'circle-radius': 9, 'circle-color': '#ff8459', 'circle-opacity': 0.85, 'circle-stroke-width': 1, 'circle-stroke-color': '#fff' } });
+  map.addLayer({ id: 'ray-layer', type: 'line', source: 'rays', paint: { 'line-color': '#88d8ff', 'line-width': 2 } });
+  map.addLayer({ id: 'sector-layer', type: 'fill', source: 'sectors', paint: { 'fill-color': '#7ac37a', 'fill-opacity': 0.2 } });
+  map.addLayer({ id: 'confidence-layer', type: 'fill', source: 'confidence', paint: { 'fill-color': '#ffc857', 'fill-opacity': 0.2 } });
 
-  [infraToggle, estToggle, timeRange, modelSelect].forEach((el) => el.addEventListener('input', refreshSource));
+  ['infra-layer', 'estimate-layer'].forEach((layer) => map.on('click', layer, (e) => { const f = e.features?.[0]; if (f) details.innerHTML = popupHtml(f.properties); }));
+
+  [infraToggle, estToggle, rayToggle, sectorToggle, confidenceToggle, timeRange].forEach((el) => el.addEventListener('input', refreshSource));
   refreshSource();
+  refreshLoopStatus();
+  setInterval(refreshLoopStatus, 10000);
 });
