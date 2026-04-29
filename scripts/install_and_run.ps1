@@ -23,5 +23,12 @@ Write-Host "[AntennaMAP] Running tests..."
 $env:PYTHONPATH='.'
 & $VenvPython -m pytest -q
 
+$RunBaseline = $env:RUN_BASELINE_TRAINING
+if ($RunBaseline -eq "1") {
+  Write-Host "[AntennaMAP] Running initial baseline training..."
+  $env:PYTHONPATH='.'
+  & $VenvPython -c "from fastapi.testclient import TestClient; from backend.main import app; TestClient(app).post('/api/training/start', params={'method':'single_triangulation_baseline'})"
+}
+
 Write-Host "[AntennaMAP] Starting app at http://127.0.0.1:8000"
 & $VenvPython -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
