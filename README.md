@@ -1,14 +1,9 @@
 # AntennaMAP Starter Project
 
-This repository now starts a real application with:
-- FastAPI API for map features and AI assessment status
-- Local continuous RF assessment loop (aggregated telemetry only)
-- Optional Ollama integration for local LLM-assisted emitter estimation
-- MapLibre-based 3D map UI that polls for refreshed estimated emitters across a Miami city-wide seed dataset
-
-## Privacy boundary
-
-The loop uses only aggregated telemetry metadata (band, RSSI, SNR, bearing, coordinates). It does not decode communication payloads.
+This begins the project with a proper application structure:
+- FastAPI backend (`/api/features`, `/api/health`)
+- Static frontend using MapLibre for a 3D GPS-style map
+- Sample Miramar data for infrastructure + estimated emitters
 
 ## Run locally
 
@@ -16,22 +11,14 @@ The loop uses only aggregated telemetry metadata (band, RSSI, SNR, bearing, coor
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
-# optional, in another terminal:
-# ollama run llama3.1:8b
-
 uvicorn backend.main:app --reload --port 8000
 ```
 
-Open: `http://localhost:8000`
+Open `http://localhost:8000`.
 
-## Run tests
+## Current scope
 
-```bash
-pytest -q
-```
-
-
-## City coverage
-
-The seed dataset now includes synthetic infrastructure and estimate points across the Miami city bounding box for full-city preview rendering.
+- Click infrastructure and estimated emitter objects for metadata
+- Time cutoff slider for timestamp filtering
+- Layer toggles for object categories
+- Informational-only dataset with no private payload content
