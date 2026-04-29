@@ -11,6 +11,9 @@ const map = new maplibregl.Map({
 const details = document.getElementById('details');
 const infraToggle = document.getElementById('infraToggle');
 const estToggle = document.getElementById('estToggle');
+const beamLinesToggle = document.getElementById('beamLinesToggle');
+const coverageToggle = document.getElementById('coverageToggle');
+const confidenceToggle = document.getElementById('confidenceToggle');
 const timeRange = document.getElementById('timeRange');
 const timeLabel = document.getElementById('timeLabel');
 const modelSelect = document.getElementById('propModel');
@@ -21,6 +24,8 @@ let selectedSiteId = null;
 const popupHtml = (p) => p.kind === 'infrastructure'
   ? `<strong>${p.name}</strong><br>ID: ${p.id}<br>Type: ${p.structure_type}<br>Pattern: ${p.directionality}<br>Azimuth: ${p.azimuth_deg ?? 'N/A'}°<br>RF: ${p.rf_min_mhz}-${p.rf_max_mhz} MHz<br>Timestamp: ${p.timestamp}`
   : `<strong>${p.name}</strong><br>ID: ${p.id}<br>Band: ${p.freq_band}<br>Confidence: ${(p.confidence_score * 100).toFixed(0)}%<br>Ellipse: ${p.confidence_major_m}m × ${p.confidence_minor_m}m<br>Samples: ${p.sample_count}<br>Timestamp: ${p.timestamp}`;
+
+const beamHtml = (p) => `<strong>${p.source_name}</strong><br>Source: ${p.source_id} (${p.source_kind})<br>Layer: ${p.beam_type}<br>Azimuth: ${p.azimuth_deg.toFixed(1)}°<br>Beamwidth: ${p.beamwidth_deg.toFixed(1)}°<br>Tilt proxy: ${p.tilt_proxy_deg.toFixed(1)}°<br>Power class: ${p.power_class}<br>Radius: ${p.radius_m.toFixed(1)} m<br>Timestamp: ${p.timestamp}<br>Assumptions: ${p.assumptions}`;
 
 function cutoffFromSlider() {
   const idx = Math.floor((Number(timeRange.value) / 100) * (sortedTimes.length - 1));
@@ -44,11 +49,28 @@ async function refreshSource() {
   const cutoff = cutoffFromSlider();
   timeLabel.textContent = `Cutoff: ${cutoff}`;
   const params = new URLSearchParams({ timestamp_lte: cutoff });
-  const data = await fetch(`/api/features?${params}`).then(r => r.json());
-  const filtered = data.features.filter((f) => {
-    return (f.properties.kind === 'infrastructure' && infraToggle.checked) ||
-      (f.properties.kind === 'estimate' && estToggle.checked);
+
+  const [featureData, propagationData] = await Promise.all([
+    fetch(`/api/features?${params}`).then((r) => r.json()),
+    fetch(`/api/propagation?${params}`).then((r) => r.json()),
+  ]);
+
+  const filtered = featureData.features.filter((f) => {
+    return (f.properties.kind === 'infrastructure' && infraToggle.checked)
+      || (f.properties.kind === 'estimate' && estToggle.checked);
   });
+
+  const selectedKinds = [];
+  if (infraToggle.checked) selectedKinds.push('infrastructure');
+  if (estToggle.checked) selectedKinds.push('estimate');
+
+  const propagationFiltered = propagationData.features.filter((f) => {
+    const typeEnabled = (f.properties.beam_type === 'centerline' && beamLinesToggle.checked)
+      || (f.properties.beam_type === 'wedge' && coverageToggle.checked)
+      || (f.properties.beam_type === 'confidence' && confidenceToggle.checked);
+    return typeEnabled && selectedKinds.includes(f.properties.source_kind);
+  });
+
   map.getSource('antennas').setData({ type: 'FeatureCollection', features: filtered });
   if (!selectedSiteId) {
     const first = filtered.find(f => f.properties.kind === 'infrastructure');
@@ -59,9 +81,9 @@ async function refreshSource() {
 
 map.on('load', async () => {
   map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
-  const seed = await fetch('/api/features').then(r => r.json());
+  const seed = await fetch('/api/features').then((r) => r.json());
   allFeatures = seed.features;
-  sortedTimes = [...new Set(allFeatures.map(f => f.properties.timestamp))].sort();
+  sortedTimes = [...new Set(allFeatures.map((f) => f.properties.timestamp))].sort();
 
   map.addSource('antennas', { type: 'geojson', data: seed });
   map.addSource('prop-contours', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
