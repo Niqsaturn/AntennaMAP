@@ -3,17 +3,23 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.pipeline.ingest import evaluate_retraining_triggers, ingest_telemetry, summarize_telemetry
+
+from backend.training.trainer import train_single_triangulation_baseline
+from backend.training.triangulation_baseline import estimate_single_operator
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_FILE = ROOT / "public" / "data" / "antenna_data.geojson"
 TELEMETRY_FILE = ROOT / "public" / "data" / "telemetry_samples.json"
 INGEST_LOG_FILE = ROOT / "backend" / "pipeline" / "data" / "telemetry_ingested.jsonl"
 RUN_METADATA_FILE = ROOT / "backend" / "pipeline" / "data" / "model_runs.jsonl"
+MODELS_DIR = ROOT / "models"
+TRAINING_STATUS_FILE = ROOT / "backend" / "pipeline" / "data" / "training_status.json"
+RUNTIME_CONFIG_FILE = ROOT / "backend" / "pipeline" / "data" / "runtime_config.json"
 
 app = FastAPI(title="AntennaMAP API", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -61,6 +67,29 @@ def _read_jsonl(path: Path) -> list[dict]:
     return rows
 
 
+def load_telemetry_samples() -> list[dict]:
+    return _load_json(TELEMETRY_FILE)
+
+
+def enrich_feature(feature: dict, telemetry: list[dict]) -> dict:
+    out = dict(feature)
+    props = dict(out.get("properties", {}))
+    props.setdefault("timestamp", datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z"))
+    out["properties"] = props
+    return out
+
+
+def _load_runtime_config() -> dict:
+    if not RUNTIME_CONFIG_FILE.exists():
+        return {"selected_method": "single_triangulation_baseline"}
+    return json.loads(RUNTIME_CONFIG_FILE.read_text(encoding="utf-8"))
+
+
+def _write_training_status(payload: dict) -> None:
+    TRAINING_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    TRAINING_STATUS_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok", "service": "antennamap"}
@@ -103,10 +132,13 @@ def ingest_pipeline(model_version: str = "baseline-v1") -> dict:
         "end": max(timestamps).isoformat() if timestamps else None,
     }
 
+    runtime = _load_runtime_config()
+    selected_method = runtime.get("selected_method", "single_triangulation_baseline")
     run_id = datetime.now(tz=timezone.utc).isoformat()
     run_metadata = {
         "run_id": run_id,
         "model_version": model_version,
+        "selected_method": selected_method,
         "data_window": data_window,
         "metrics": {
             **ingestion_result.quality_metrics,
@@ -134,6 +166,40 @@ def model_metrics() -> dict:
     latest = runs[-1] if runs else None
     retraining = evaluate_retraining_triggers(runs)
     return {"latest": latest, "runs": runs, "retraining": retraining}
+
+
+
+
+@app.post("/api/training/start")
+def start_training(method: str = "single_triangulation_baseline") -> dict:
+    if method != "single_triangulation_baseline":
+        raise HTTPException(status_code=400, detail="unsupported training method")
+
+    _write_training_status({"status": "running", "method": method, "started_at": datetime.now(tz=timezone.utc).isoformat()})
+    samples = _load_json(TELEMETRY_FILE)
+    artifact = train_single_triangulation_baseline(samples, MODELS_DIR)
+    runtime = _load_runtime_config()
+    runtime["selected_method"] = method
+    runtime["selected_model"] = artifact["model_name"]
+    RUNTIME_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    RUNTIME_CONFIG_FILE.write_text(json.dumps(runtime, indent=2), encoding="utf-8")
+    _append_jsonl(RUN_METADATA_FILE, {"run_id": datetime.now(tz=timezone.utc).isoformat(), "training": artifact})
+    _write_training_status({"status": "completed", "method": method, "completed_at": datetime.now(tz=timezone.utc).isoformat(), "metrics": artifact["metrics"]})
+    return {"status": "started", "method": method, "artifact": artifact}
+
+
+@app.get("/api/training/status")
+def training_status() -> dict:
+    if not TRAINING_STATUS_FILE.exists():
+        return {"status": "idle"}
+    return json.loads(TRAINING_STATUS_FILE.read_text(encoding="utf-8"))
+
+
+@app.get("/api/training/history")
+def training_history() -> dict:
+    files = sorted(MODELS_DIR.glob("single_triangulation_baseline_*.json"))
+    history = [json.loads(f.read_text(encoding="utf-8")) for f in files]
+    return {"history": history, "count": len(history)}
 
 
 app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")
