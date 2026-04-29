@@ -287,6 +287,18 @@ def run_inference(provider: str, model: str, payload: dict) -> dict:
     raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
 
 
+def _parse_timestamp(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _telemetry_in_window(timestamp_lte: str | None) -> tuple[list[dict], datetime | None]:
+    telemetry = load_telemetry_samples()
+    cutoff = _parse_timestamp(timestamp_lte) if timestamp_lte else None
+    if cutoff:
+        telemetry = [sample for sample in telemetry if _parse_timestamp(sample["timestamp"]) <= cutoff]
+    return telemetry, cutoff
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok", "service": "antennamap"}
@@ -320,8 +332,8 @@ def get_features(kind: str | None = Query(default=None, pattern="^(infrastructur
     if kind:
         features = [f for f in features if f.get("properties", {}).get("kind") == kind]
     if timestamp_lte:
-        cutoff = datetime.fromisoformat(timestamp_lte.replace("Z", "+00:00"))
-        features = [f for f in features if datetime.fromisoformat(f["properties"]["timestamp"].replace("Z", "+00:00")) <= cutoff]
+        cutoff = _parse_timestamp(timestamp_lte)
+        features = [f for f in features if _parse_timestamp(f["properties"]["timestamp"]) <= cutoff]
     return {"type": "FeatureCollection", "features": features}
 
 

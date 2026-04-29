@@ -82,6 +82,13 @@ async function refreshSource() {
   map.getSource('confidence').setData({ type: 'FeatureCollection', features: confidenceToggle.checked ? confidence : [] });
 }
 
+tabs.forEach((tab) => tab.addEventListener('click', () => {
+  tabs.forEach((t) => t.classList.remove('active'));
+  tabPanels.forEach((p) => p.classList.remove('active'));
+  tab.classList.add('active');
+  document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
+}));
+
 map.on('load', async () => {
   map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
   const seed = await fetch('/api/features').then((r) => r.json());
