@@ -23,3 +23,7 @@ def test_api_health_and_features_shape():
     payload = features.json()
     assert payload["type"] == "FeatureCollection"
     assert isinstance(payload["features"], list)
+    first_props = payload["features"][0]["properties"]
+    assert "antenna_type" in first_props
+    assert "type_confidence" in first_props
+    assert "estimated_elements" in first_props

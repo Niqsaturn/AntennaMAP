@@ -16,9 +16,20 @@ const timeLabel = document.getElementById('timeLabel');
 let allFeatures = [];
 let sortedTimes = [];
 
+const inferredHtml = (p) => {
+  const e = p.estimated_elements || {};
+  return `Antenna Type: ${p.antenna_type ?? 'unknown'} (${((p.type_confidence ?? 0) * 100).toFixed(0)}%)<br>` +
+    `Beamwidth: ${e.estimated_beamwidth_deg ?? 'N/A'}°<br>` +
+    `Orientation: ${e.array_orientation_deg ?? 'N/A'}°<br>` +
+    `Sectors: ${e.sector_count ?? 'N/A'}<br>` +
+    `Tilt: ${e.tilt_estimate_deg ?? 'N/A'}°<br>` +
+    `Polarization: ${e.polarization_class ?? 'N/A'}<br>` +
+    `Gain: ${e.gain_bucket ?? 'N/A'}`;
+};
+
 const popupHtml = (p) => p.kind === 'infrastructure'
-  ? `<strong>${p.name}</strong><br>ID: ${p.id}<br>Type: ${p.structure_type}<br>Pattern: ${p.directionality}<br>Azimuth: ${p.azimuth_deg ?? 'N/A'}°<br>RF: ${p.rf_min_mhz}-${p.rf_max_mhz} MHz<br>Timestamp: ${p.timestamp}`
-  : `<strong>${p.name}</strong><br>ID: ${p.id}<br>Band: ${p.freq_band}<br>Confidence: ${(p.confidence_score * 100).toFixed(0)}%<br>Ellipse: ${p.confidence_major_m}m × ${p.confidence_minor_m}m<br>Samples: ${p.sample_count}<br>Timestamp: ${p.timestamp}`;
+  ? `<strong>${p.name}</strong><br>ID: ${p.id}<br>Type: ${p.structure_type}<br>Pattern: ${p.directionality}<br>Azimuth: ${p.azimuth_deg ?? 'N/A'}°<br>RF: ${p.rf_min_mhz}-${p.rf_max_mhz} MHz<br>${inferredHtml(p)}<br>Timestamp: ${p.timestamp}`
+  : `<strong>${p.name}</strong><br>ID: ${p.id}<br>Band: ${p.freq_band}<br>Confidence: ${(p.confidence_score * 100).toFixed(0)}%<br>Ellipse: ${p.confidence_major_m}m × ${p.confidence_minor_m}m<br>Samples: ${p.sample_count}<br>${inferredHtml(p)}<br>Timestamp: ${p.timestamp}`;
 
 function cutoffFromSlider() {
   const idx = Math.floor((Number(timeRange.value) / 100) * (sortedTimes.length - 1));
