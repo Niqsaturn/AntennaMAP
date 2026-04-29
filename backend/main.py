@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.pipeline.ingest import evaluate_retraining_triggers, ingest_telemetry, summarize_telemetry
+from backend.ingest.sdr_ingest import SDRIngestService, SDRStoragePaths
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_FILE = ROOT / "public" / "data" / "antenna_data.geojson"
@@ -16,6 +17,22 @@ INGEST_LOG_FILE = ROOT / "backend" / "pipeline" / "data" / "telemetry_ingested.j
 RUN_METADATA_FILE = ROOT / "backend" / "pipeline" / "data" / "model_runs.jsonl"
 
 app = FastAPI(title="AntennaMAP API", version="0.1.0")
+
+
+def _mock_adapter_fetcher() -> list[dict]:
+    return []
+
+
+sdr_service = SDRIngestService(
+    adapter_fetcher=_mock_adapter_fetcher,
+    storage=SDRStoragePaths(
+        raw_jsonl=ROOT / "backend" / "ingest" / "data" / "sdr_raw.jsonl",
+        aggregates_jsonl=ROOT / "backend" / "ingest" / "data" / "sdr_aggregates.jsonl",
+        reject_jsonl=ROOT / "backend" / "ingest" / "data" / "sdr_rejected.jsonl",
+        sqlite_file=ROOT / "backend" / "ingest" / "data" / "sdr_ingest.sqlite3",
+    ),
+    poll_interval_s=1.0,
+)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -136,4 +153,24 @@ def model_metrics() -> dict:
     return {"latest": latest, "runs": runs, "retraining": retraining}
 
 
+
+
+@app.post("/api/sdr/start")
+def sdr_start() -> dict:
+    return sdr_service.start()
+
+
+@app.post("/api/sdr/stop")
+def sdr_stop() -> dict:
+    return sdr_service.stop()
+
+
+@app.get("/api/sdr/status")
+def sdr_status() -> dict:
+    return sdr_service.status()
+
+
+@app.get("/api/sdr/devices")
+def sdr_devices() -> dict:
+    return {"devices": []}
 app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")
