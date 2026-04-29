@@ -37,6 +37,9 @@ async function refreshLoopStatus() {
 }
 
 async function refreshSource() {
+  if (!sourcesInitialized) return;
+
+  setAssessmentLoopStatus(true);
   const cutoff = cutoffFromSlider();
   timeLabel.textContent = `Cutoff: ${cutoff}`;
   const data = await fetch(`/api/features?timestamp_lte=${encodeURIComponent(cutoff)}`).then((r) => r.json());
