@@ -17,6 +17,7 @@ const confidenceToggle = document.getElementById('confidenceToggle');
 const timeRange = document.getElementById('timeRange');
 const timeLabel = document.getElementById('timeLabel');
 const modelSelect = document.getElementById('propModel');
+const loopStatus = document.getElementById('loopStatus');
 let allFeatures = [];
 let sortedTimes = [];
 let selectedSiteId = null;
@@ -54,6 +55,17 @@ async function refreshPropagation() {
   }));
   map.getSource('prop-contours').setData({ type: 'FeatureCollection', features: contours });
   details.innerHTML = `${details.innerHTML}<hr><strong>Propagation:</strong> ${p.snapshot.model}<br>Uncertainty ±${p.snapshot.uncertainty.sigma_db} dB`;
+}
+
+
+async function refreshLoopStatus() {
+  try {
+    const status = await fetch('/api/loop/status').then((r) => r.json());
+    const lastSuccess = status.last_run?.last_successful_run_at ?? 'never';
+    loopStatus.innerHTML = `<strong>Loop:</strong> ${status.active ? 'running' : 'paused'}<br><strong>Provider:</strong> ${status.config.provider}<br><strong>Model:</strong> ${status.config.model}<br><strong>Interval:</strong> ${status.config.interval_seconds}s<br><strong>Last successful run:</strong> ${lastSuccess}`;
+  } catch (_err) {
+    loopStatus.textContent = 'Loop: unavailable';
+  }
 }
 
 async function refreshSource() {
@@ -117,4 +129,6 @@ map.on('load', async () => {
 
   [infraToggle, estToggle, timeRange, modelSelect].forEach((el) => el.addEventListener('input', refreshSource));
   refreshSource();
+  refreshLoopStatus();
+  setInterval(refreshLoopStatus, 10000);
 });
