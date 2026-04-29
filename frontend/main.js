@@ -15,6 +15,24 @@ let sortedTimes = [];
 
 const popupHtml = (p) => `<strong>${p.name}</strong><br>ID: ${p.id}<br>Kind: ${p.kind}<br>Azimuth: ${p.azimuth_deg ?? 'N/A'}°<br>Beamwidth: ${p.beamwidth_deg ?? 'N/A'}°<br>Ray length: ${p.ray_length_m ?? 'N/A'} m<br>Sector radius: ${p.wedge_radius_m ?? 'N/A'} m<br>Confidence ellipse: ${p.confidence_major_m ?? 'N/A'}m × ${p.confidence_minor_m ?? 'N/A'}m`;
 
+
+function formatFreqHz(hz) {
+  return `${(hz / 1_000_000).toFixed(3)} MHz`;
+}
+
+async function refreshSdrStatus() {
+  const response = await fetch('/api/sdr/capabilities');
+  const data = await response.json();
+  const active = data.active_config;
+  const modelMeta = data.capabilities.models[active.model] || {};
+  sdrStatus.innerHTML = `<strong>Device:</strong> ${modelMeta.label || active.model}<br>` +
+    `<strong>Model ID:</strong> ${active.model}<br>` +
+    `<strong>Center:</strong> ${formatFreqHz(active.center_freq_hz)}<br>` +
+    `<strong>Sample Rate:</strong> ${active.sample_rate_sps.toLocaleString()} sps<br>` +
+    `<strong>Bandwidth:</strong> ${active.bandwidth_hz.toLocaleString()} Hz<br>` +
+    `<strong>Gain:</strong> ${active.gain_db} dB · <strong>PPM:</strong> ${active.ppm}`;
+}
+
 function cutoffFromSlider() {
   const idx = Math.floor((Number(timeRange.value) / 100) * (sortedTimes.length - 1));
   return sortedTimes[idx] ?? sortedTimes[sortedTimes.length - 1];

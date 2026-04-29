@@ -45,6 +45,83 @@ INFRA_INGEST_FILE = ROOT / "backend" / "pipeline" / "data" / "infrastructure_ing
 RUN_METADATA_FILE = ROOT / "backend" / "pipeline" / "data" / "model_runs.jsonl"
 INGEST_ISSUES_FILE = ROOT / "backend" / "pipeline" / "data" / "ingest_issues.jsonl"
 
+SDR_CAPABILITIES_FILE = ROOT / "backend" / "sdr" / "capabilities.yaml"
+
+
+class SDRConfigureRequest(BaseModel):
+    model: str
+    sample_rate_sps: int
+    center_freq_hz: int
+    bandwidth_hz: int
+    gain_db: float
+    ppm: int = 0
+
+
+def load_sdr_capabilities() -> dict:
+    return yaml.safe_load(SDR_CAPABILITIES_FILE.read_text(encoding="utf-8"))
+
+
+def _validate_range(field: str, value: float, limits: dict) -> dict | None:
+    low = limits["min"]
+    high = limits["max"]
+    if value < low or value > high:
+        return {
+            "field": field,
+            "message": f"{field} must be between {low} and {high}",
+            "requested": value,
+            "allowed": limits,
+            "error_code": "OUT_OF_RANGE",
+        }
+    return None
+
+
+def validate_sdr_config(payload: SDRConfigureRequest, capabilities: dict) -> list[dict]:
+    models = capabilities.get("models", {})
+    model_caps = models.get(payload.model)
+    if not model_caps:
+        return [{
+            "field": "model",
+            "message": f"Unsupported SDR model: {payload.model}",
+            "requested": payload.model,
+            "allowed": sorted(models.keys()),
+            "error_code": "UNSUPPORTED_MODEL",
+        }]
+
+    constraints = model_caps.get("constraints", {})
+    errors = []
+    for field in ["sample_rate_sps", "center_freq_hz", "bandwidth_hz", "gain_db", "ppm"]:
+        violation = _validate_range(field, getattr(payload, field), constraints[field])
+        if violation:
+            errors.append(violation)
+
+    if payload.bandwidth_hz > payload.sample_rate_sps:
+        errors.append({
+            "field": "bandwidth_hz",
+            "message": "bandwidth_hz cannot exceed sample_rate_sps",
+            "requested": payload.bandwidth_hz,
+            "allowed": {"max_relative_to": "sample_rate_sps"},
+            "error_code": "INVALID_COMBINATION",
+        })
+    return errors
+
+
+ACTIVE_SDR_CONFIG = None
+
+
+def _default_sdr_config() -> dict:
+    caps = load_sdr_capabilities()
+    default_model = caps["default_model"]
+    c = caps["models"][default_model]["constraints"]
+    return {
+        "model": default_model,
+        "sample_rate_sps": c["sample_rate_sps"]["min"],
+        "center_freq_hz": c["center_freq_hz"]["min"],
+        "bandwidth_hz": c["bandwidth_hz"]["min"],
+        "gain_db": c["gain_db"]["min"],
+        "ppm": 0,
+    }
+
+
 app = FastAPI(title="AntennaMAP API", version="0.1.0")
 
 
