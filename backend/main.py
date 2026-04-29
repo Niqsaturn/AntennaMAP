@@ -301,7 +301,7 @@ def _telemetry_in_window(timestamp_lte: str | None) -> tuple[list[dict], datetim
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "service": "antennamap"}
+    return {"status": "ok", "service": "antennamap", **policy_status()}
 
 
 @app.post("/api/loop/pause")
