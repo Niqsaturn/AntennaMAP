@@ -8,6 +8,9 @@ const sectorToggle = document.getElementById('sectorToggle');
 const confidenceToggle = document.getElementById('confidenceToggle');
 const timeRange = document.getElementById('timeRange');
 const timeLabel = document.getElementById('timeLabel');
+const modelSelect = document.getElementById('propModel');
+const loopStatus = document.getElementById('loopStatus');
+let allFeatures = [];
 let sortedTimes = [];
 
 const popupHtml = (p) => `<strong>${p.name}</strong><br>ID: ${p.id}<br>Kind: ${p.kind}<br>Azimuth: ${p.azimuth_deg ?? 'N/A'}°<br>Beamwidth: ${p.beamwidth_deg ?? 'N/A'}°<br>Ray length: ${p.ray_length_m ?? 'N/A'} m<br>Sector radius: ${p.wedge_radius_m ?? 'N/A'} m<br>Confidence ellipse: ${p.confidence_major_m ?? 'N/A'}m × ${p.confidence_minor_m ?? 'N/A'}m`;
@@ -20,6 +23,17 @@ function cutoffFromSlider() {
 function asFeature(siteFeature, geometry, overlayType) {
   if (!geometry) return null;
   return { type: 'Feature', geometry, properties: { ...siteFeature.properties, overlay_type: overlayType } };
+}
+
+
+async function refreshLoopStatus() {
+  try {
+    const status = await fetch('/api/loop/status').then((r) => r.json());
+    const lastSuccess = status.last_run?.last_successful_run_at ?? 'never';
+    loopStatus.innerHTML = `<strong>Loop:</strong> ${status.active ? 'running' : 'paused'}<br><strong>Provider:</strong> ${status.config.provider}<br><strong>Model:</strong> ${status.config.model}<br><strong>Interval:</strong> ${status.config.interval_seconds}s<br><strong>Last successful run:</strong> ${lastSuccess}`;
+  } catch (_err) {
+    loopStatus.textContent = 'Loop: unavailable';
+  }
 }
 
 async function refreshSource() {
@@ -67,4 +81,6 @@ map.on('load', async () => {
 
   [infraToggle, estToggle, rayToggle, sectorToggle, confidenceToggle, timeRange].forEach((el) => el.addEventListener('input', refreshSource));
   refreshSource();
+  refreshLoopStatus();
+  setInterval(refreshLoopStatus, 10000);
 });
