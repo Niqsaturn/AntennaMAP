@@ -8,6 +8,8 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from backend.rf.geometry import build_propagation_features
+
 ROOT = Path(__file__).resolve().parents[1]
 DATA_FILE = ROOT / "public" / "data" / "antenna_data.geojson"
 
@@ -51,6 +53,18 @@ def get_features(
         ]
 
     return {"type": "FeatureCollection", "features": features}
+
+
+@app.get("/api/propagation")
+def get_propagation(
+    kind: str | None = Query(default=None, pattern="^(infrastructure|estimate)?$"),
+    timestamp_lte: str | None = None,
+) -> dict:
+    source_features = get_features(kind=kind, timestamp_lte=timestamp_lte)["features"]
+    propagation_features = []
+    for feature in source_features:
+        propagation_features.extend(build_propagation_features(feature))
+    return {"type": "FeatureCollection", "features": propagation_features}
 
 
 app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")

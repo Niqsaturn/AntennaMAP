@@ -14,10 +14,13 @@
     <p class="muted">Miramar pilot · informational RF metadata only</p>
     <label><input id="infraToggle" type="checkbox" checked> Infrastructure</label>
     <label><input id="estToggle" type="checkbox" checked> Estimated emitters</label>
+    <label><input id="beamLinesToggle" type="checkbox" checked> Beam Lines</label>
+    <label><input id="coverageToggle" type="checkbox" checked> Coverage Wedges</label>
+    <label><input id="confidenceToggle" type="checkbox" checked> Confidence Footprints</label>
     <label for="timeRange">Time cutoff</label>
     <input id="timeRange" type="range" min="0" max="100" value="100" />
     <div id="timeLabel" class="muted"></div>
-    <div id="details" class="details">Click markers for metadata.</div>
+    <div id="details" class="details">Click markers or beam geometry for metadata.</div>
   </aside>
   <script src="https://unpkg.com/maplibre-gl@4.3.2/dist/maplibre-gl.js"></script>
   <script type="module" src="./main.js"></script>
