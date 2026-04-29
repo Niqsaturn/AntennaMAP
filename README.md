@@ -4,6 +4,7 @@ This begins the project with a proper application structure:
 - FastAPI backend (`/api/features`, `/api/health`, `/api/pipeline/ingest`, `/api/model/metrics`)
 - Static frontend using MapLibre for a 3D GPS-style map
 - Sample Miramar data for infrastructure + estimated emitters
+- Triangulation ML pipeline module with deterministic solver + model calibration artifacts
 
 ## Run locally
 

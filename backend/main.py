@@ -16,18 +16,26 @@ INGEST_LOG_FILE = ROOT / "backend" / "pipeline" / "data" / "telemetry_ingested.j
 RUN_METADATA_FILE = ROOT / "backend" / "pipeline" / "data" / "model_runs.jsonl"
 
 app = FastAPI(title="AntennaMAP API", version="0.1.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
 def load_geojson() -> dict:
-    with DATA_FILE.open("r", encoding="utf-8") as f:
-        return json.load(f)
+    return json.loads(DATA_FILE.read_text(encoding="utf-8"))
+
+
+def summarize_telemetry(samples: list[dict]) -> dict:
+    band_summary: dict[str, dict] = {}
+    for sample in samples:
+        band = sample.get("band", "unknown")
+        band_summary.setdefault(band, {"sample_count": 0, "snr": 0.0, "rssi": 0.0})
+        band_summary[band]["sample_count"] += 1
+        band_summary[band]["snr"] += sample.get("snr_db", 0.0)
+        band_summary[band]["rssi"] += sample.get("rssi_dbm", 0.0)
+    for _, v in band_summary.items():
+        n = v["sample_count"]
+        v["avg_snr_db"] = round(v.pop("snr") / n, 3)
+        v["avg_rssi_dbm"] = round(v.pop("rssi") / n, 3)
+    return {"band_summary": band_summary, "sample_count": len(samples)}
 
 
 def _load_json(path: Path) -> list[dict]:
@@ -59,25 +67,16 @@ def health() -> dict:
 
 
 @app.get("/api/features")
-def get_features(
-    kind: str | None = Query(default=None, pattern="^(infrastructure|estimate)?$"),
-    timestamp_lte: str | None = None,
-) -> dict:
+def get_features(kind: str | None = Query(default=None, pattern="^(infrastructure|estimate)?$"), timestamp_lte: str | None = None) -> dict:
     data = load_geojson()
     telemetry = load_telemetry_samples()
     features = [enrich_feature(f, telemetry) for f in data["features"]]
 
     if kind:
         features = [f for f in features if f["properties"].get("kind") == kind]
-
     if timestamp_lte:
         cutoff = datetime.fromisoformat(timestamp_lte.replace("Z", "+00:00"))
-        features = [
-            f
-            for f in features
-            if datetime.fromisoformat(f["properties"]["timestamp"].replace("Z", "+00:00")) <= cutoff
-        ]
-
+        features = [f for f in features if datetime.fromisoformat(f["properties"]["timestamp"].replace("Z", "+00:00")) <= cutoff]
     return {"type": "FeatureCollection", "features": features}
 
 
