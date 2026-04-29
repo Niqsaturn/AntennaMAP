@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.pipeline.ingest import evaluate_retraining_triggers, ingest_telemetry, summarize_telemetry
+from backend.foxhunt import FoxHuntObservation, FoxHuntService
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_FILE = ROOT / "public" / "data" / "antenna_data.geojson"
@@ -17,6 +18,8 @@ RUN_METADATA_FILE = ROOT / "backend" / "pipeline" / "data" / "model_runs.jsonl"
 
 app = FastAPI(title="AntennaMAP API", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+foxhunt_service = FoxHuntService()
 
 
 def load_geojson() -> dict:
@@ -135,5 +138,34 @@ def model_metrics() -> dict:
     retraining = evaluate_retraining_triggers(runs)
     return {"latest": latest, "runs": runs, "retraining": retraining}
 
+
+
+@app.post("/api/foxhunt/session/start")
+def foxhunt_start_session() -> dict:
+    return foxhunt_service.start_session().model_dump()
+
+
+@app.post("/api/foxhunt/session/stop")
+def foxhunt_stop_session(session_id: str) -> dict:
+    try:
+        return foxhunt_service.stop_session(session_id).model_dump()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Session not found") from exc
+
+
+@app.post("/api/foxhunt/session/{session_id}/observation")
+def foxhunt_add_observation(session_id: str, observation: FoxHuntObservation) -> dict:
+    try:
+        return foxhunt_service.append_observation(session_id, observation).model_dump()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Session not found") from exc
+
+
+@app.get("/api/foxhunt/session/{session_id}")
+def foxhunt_get_session(session_id: str) -> dict:
+    try:
+        return foxhunt_service.get_session(session_id).model_dump()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Session not found") from exc
 
 app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")
