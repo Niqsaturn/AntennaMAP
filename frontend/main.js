@@ -17,9 +17,14 @@ const confidenceToggle = document.getElementById('confidenceToggle');
 const timeRange = document.getElementById('timeRange');
 const timeLabel = document.getElementById('timeLabel');
 const modelSelect = document.getElementById('propModel');
+const providerSelect = document.getElementById('providerSelect');
+const modelRuntimeSelect = document.getElementById('modelRuntimeSelect');
+const activeModelLabel = document.getElementById('activeModelLabel');
+const modelError = document.getElementById('modelError');
 let allFeatures = [];
 let sortedTimes = [];
 let selectedSiteId = null;
+let providerModels = {};
 
 const inferredHtml = (p) => {
   const e = p.estimated_elements || {};
@@ -41,6 +46,59 @@ const beamHtml = (p) => `<strong>${p.source_name}</strong><br>Source: ${p.source
 function cutoffFromSlider() {
   const idx = Math.floor((Number(timeRange.value) / 100) * (sortedTimes.length - 1));
   return sortedTimes[idx] ?? sortedTimes[sortedTimes.length - 1];
+}
+
+function setActiveLabel(provider, model) {
+  activeModelLabel.textContent = `Active model: ${provider || 'n/a'} / ${model || 'n/a'}`;
+}
+
+async function selectRuntimeModel() {
+  modelError.textContent = '';
+  const payload = { provider: providerSelect.value, model: modelRuntimeSelect.value };
+  const res = await fetch('/api/model/select', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json();
+  if (!res.ok) {
+    modelError.textContent = body.detail || 'Failed to update model selection.';
+    return;
+  }
+  setActiveLabel(body.active.provider, body.active.model);
+}
+
+function populateModelOptions(provider) {
+  const models = providerModels[provider] || [];
+  modelRuntimeSelect.innerHTML = '';
+  models.forEach((model) => {
+    const option = document.createElement('option');
+    option.value = model;
+    option.textContent = model;
+    modelRuntimeSelect.appendChild(option);
+  });
+}
+
+async function loadModelCatalog() {
+  modelError.textContent = '';
+  const res = await fetch('/api/models');
+  const body = await res.json();
+  if (!res.ok) {
+    modelError.textContent = body.detail || 'Failed to load providers/models';
+    return;
+  }
+  providerModels = Object.fromEntries(body.providers.map((p) => [p.id, p.models]));
+  providerSelect.innerHTML = '';
+  body.providers.forEach((p) => {
+    const option = document.createElement('option');
+    option.value = p.id;
+    option.textContent = p.id;
+    providerSelect.appendChild(option);
+  });
+  providerSelect.value = body.active.provider;
+  populateModelOptions(providerSelect.value);
+  modelRuntimeSelect.value = body.active.model;
+  setActiveLabel(body.active.provider, body.active.model);
 }
 
 async function refreshPropagation() {
@@ -116,5 +174,11 @@ map.on('load', async () => {
   });
 
   [infraToggle, estToggle, timeRange, modelSelect].forEach((el) => el.addEventListener('input', refreshSource));
+  providerSelect.addEventListener('change', async () => {
+    populateModelOptions(providerSelect.value);
+    await selectRuntimeModel();
+  });
+  modelRuntimeSelect.addEventListener('change', selectRuntimeModel);
+  await loadModelCatalog();
   refreshSource();
 });
