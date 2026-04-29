@@ -1,0 +1,65 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [-80.282, 25.986]},
+      "properties": {
+        "id": "site-mir-001",
+        "kind": "infrastructure",
+        "name": "Miramar North Tower",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 120,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-28T15:20:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [-80.245, 25.978]},
+      "properties": {
+        "id": "site-mir-002",
+        "kind": "infrastructure",
+        "name": "Miramar East Rooftop",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T11:05:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [-80.263, 25.965]},
+      "properties": {
+        "id": "est-mir-901",
+        "kind": "estimate",
+        "name": "Estimated Emitter A",
+        "freq_band": "1.8 GHz",
+        "confidence_major_m": 320,
+        "confidence_minor_m": 140,
+        "confidence_score": 0.76,
+        "sample_count": 18,
+        "timestamp": "2026-04-29T09:32:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [-80.299, 25.951]},
+      "properties": {
+        "id": "est-mir-902",
+        "kind": "estimate",
+        "name": "Estimated Emitter B",
+        "freq_band": "900 MHz",
+        "confidence_major_m": 510,
+        "confidence_minor_m": 220,
+        "confidence_score": 0.62,
+        "sample_count": 9,
+        "timestamp": "2026-04-27T21:10:00Z"
+      }
+    }
+  ]
+}
