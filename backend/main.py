@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
+
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -19,23 +22,101 @@ app = FastAPI(title="AntennaMAP API", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
+class LoopManager:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._running = False
+        self._thread: threading.Thread | None = None
+        self._config = {"interval_seconds": 60, "provider": "local", "model": "baseline-v1"}
+        self._last_run_started_at: str | None = None
+        self._last_run_completed_at: str | None = None
+        self._last_successful_run_at: str | None = None
+        self._last_run_duration_ms: float | None = None
+        self._provider_errors: list[dict] = []
+
+    def _record_error(self, provider: str, operation: str, exc: Exception) -> None:
+        self._provider_errors = [
+            *self._provider_errors[-24:],
+            {
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                "provider": provider,
+                "operation": operation,
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+            },
+        ]
+
+    def _run_once(self) -> None:
+        started = datetime.now(tz=timezone.utc)
+        cfg = self.config()
+        with self._lock:
+            self._last_run_started_at = started.isoformat()
+
+        try:
+            ingest_pipeline(model_version=cfg["model"])
+            with self._lock:
+                self._last_successful_run_at = datetime.now(tz=timezone.utc).isoformat()
+        except Exception as exc:
+            with self._lock:
+                self._record_error(cfg["provider"], "ingest_pipeline", exc)
+        finally:
+            done = datetime.now(tz=timezone.utc)
+            with self._lock:
+                self._last_run_completed_at = done.isoformat()
+                self._last_run_duration_ms = round((done - started).total_seconds() * 1000, 3)
+
+    def _loop(self) -> None:
+        while self.active():
+            self._run_once()
+            time.sleep(max(1, int(self.config()["interval_seconds"])))
+
+    def start(self) -> dict:
+        with self._lock:
+            if self._running:
+                return {"active": True}
+            self._running = True
+            self._thread = threading.Thread(target=self._loop, daemon=True)
+            self._thread.start()
+            return {"active": True}
+
+    def stop(self) -> dict:
+        with self._lock:
+            self._running = False
+            return {"active": False}
+
+    def active(self) -> bool:
+        with self._lock:
+            return self._running
+
+    def update_config(self, interval_seconds: int, provider: str, model: str) -> dict:
+        with self._lock:
+            self._config = {"interval_seconds": interval_seconds, "provider": provider, "model": model}
+            return self._config.copy()
+
+    def config(self) -> dict:
+        with self._lock:
+            return self._config.copy()
+
+    def status(self) -> dict:
+        with self._lock:
+            return {
+                "active": self._running,
+                "config": self._config.copy(),
+                "last_run": {
+                    "started_at": self._last_run_started_at,
+                    "completed_at": self._last_run_completed_at,
+                    "duration_ms": self._last_run_duration_ms,
+                    "last_successful_run_at": self._last_successful_run_at,
+                },
+                "provider_errors": self._provider_errors,
+            }
+
+
+loop_manager = LoopManager()
+
+
 def load_geojson() -> dict:
     return json.loads(DATA_FILE.read_text(encoding="utf-8"))
-
-
-def summarize_telemetry(samples: list[dict]) -> dict:
-    band_summary: dict[str, dict] = {}
-    for sample in samples:
-        band = sample.get("band", "unknown")
-        band_summary.setdefault(band, {"sample_count": 0, "snr": 0.0, "rssi": 0.0})
-        band_summary[band]["sample_count"] += 1
-        band_summary[band]["snr"] += sample.get("snr_db", 0.0)
-        band_summary[band]["rssi"] += sample.get("rssi_dbm", 0.0)
-    for _, v in band_summary.items():
-        n = v["sample_count"]
-        v["avg_snr_db"] = round(v.pop("snr") / n, 3)
-        v["avg_rssi_dbm"] = round(v.pop("rssi") / n, 3)
-    return {"band_summary": band_summary, "sample_count": len(samples)}
 
 
 def _load_json(path: Path) -> list[dict]:
@@ -64,6 +145,26 @@ def _read_jsonl(path: Path) -> list[dict]:
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok", "service": "antennamap"}
+
+
+@app.post("/api/loop/pause")
+def pause_loop() -> dict:
+    return loop_manager.stop()
+
+
+@app.post("/api/loop/resume")
+def resume_loop() -> dict:
+    return loop_manager.start()
+
+
+@app.post("/api/loop/config")
+def config_loop(interval_seconds: int = 60, provider: str = "local", model: str = "baseline-v1") -> dict:
+    return {"config": loop_manager.update_config(interval_seconds, provider, model)}
+
+
+@app.get("/api/loop/status")
+def loop_status() -> dict:
+    return loop_manager.status()
 
 
 @app.get("/api/features")
