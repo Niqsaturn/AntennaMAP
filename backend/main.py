@@ -1,193 +1,139 @@
 from __future__ import annotations
 
 import json
-import threading
-import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
-
-import requests
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from backend.pipeline.ingest import evaluate_retraining_triggers, ingest_telemetry, summarize_telemetry
+
 ROOT = Path(__file__).resolve().parents[1]
 DATA_FILE = ROOT / "public" / "data" / "antenna_data.geojson"
 TELEMETRY_FILE = ROOT / "public" / "data" / "telemetry_samples.json"
-OLLAMA_URL = "http://localhost:11434/api/generate"
+INGEST_LOG_FILE = ROOT / "backend" / "pipeline" / "data" / "telemetry_ingested.jsonl"
+RUN_METADATA_FILE = ROOT / "backend" / "pipeline" / "data" / "model_runs.jsonl"
+
+app = FastAPI(title="AntennaMAP API", version="0.1.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
-class AppState:
-    def __init__(self) -> None:
-        self.lock = threading.Lock()
-        self.latest_assessment: dict[str, Any] | None = None
-        self.estimated_features: list[dict[str, Any]] = []
-        self.loop_running = False
-        self.loop_error: str | None = None
+def load_geojson() -> dict:
+    return json.loads(DATA_FILE.read_text(encoding="utf-8"))
 
 
-state = AppState()
+def summarize_telemetry(samples: list[dict]) -> dict:
+    band_summary: dict[str, dict] = {}
+    for sample in samples:
+        band = sample.get("band", "unknown")
+        band_summary.setdefault(band, {"sample_count": 0, "snr": 0.0, "rssi": 0.0})
+        band_summary[band]["sample_count"] += 1
+        band_summary[band]["snr"] += sample.get("snr_db", 0.0)
+        band_summary[band]["rssi"] += sample.get("rssi_dbm", 0.0)
+    for _, v in band_summary.items():
+        n = v["sample_count"]
+        v["avg_snr_db"] = round(v.pop("snr") / n, 3)
+        v["avg_rssi_dbm"] = round(v.pop("rssi") / n, 3)
+    return {"band_summary": band_summary, "sample_count": len(samples)}
 
 
-def load_json(path: Path) -> Any:
+def _load_json(path: Path) -> list[dict]:
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def load_geojson() -> dict[str, Any]:
-    return load_json(DATA_FILE)
+def _append_jsonl(path: Path, row: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(row, sort_keys=True))
+        f.write("\n")
 
 
-def load_telemetry() -> list[dict[str, Any]]:
-    return load_json(TELEMETRY_FILE)
-
-
-def summarize_telemetry(samples: list[dict[str, Any]]) -> dict[str, Any]:
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for s in samples:
-        grouped.setdefault(s["band"], []).append(s)
-
-    band_summary: dict[str, dict[str, float | int]] = {}
-    for band, rows in grouped.items():
-        band_summary[band] = {
-            "sample_count": len(rows),
-            "avg_snr_db": round(sum(r["snr_db"] for r in rows) / len(rows), 2),
-            "avg_rssi_dbm": round(sum(r["rssi_dbm"] for r in rows) / len(rows), 2),
-        }
-
-    return {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "window": "rolling_local_samples",
-        "band_summary": band_summary,
-    }
-
-
-def ask_ollama(summary: dict[str, Any]) -> dict[str, Any]:
-    prompt = (
-        "You are an RF analysis assistant. Given aggregated spectrum telemetry and bearings, "
-        "suggest up to 2 potential estimated emitter locations with confidence. "
-        "Return strict JSON with key 'estimates'. Each estimate requires id, lon, lat, "
-        "freq_band, confidence_score(0-1), confidence_major_m, confidence_minor_m, sample_count.\n\n"
-        f"Telemetry summary: {json.dumps(summary)}"
-    )
-    payload = {"model": "llama3.1:8b", "prompt": prompt, "stream": False, "format": "json"}
-    res = requests.post(OLLAMA_URL, json=payload, timeout=10)
-    res.raise_for_status()
-    return json.loads(res.json().get("response", "{}"))
-
-
-def fallback_estimates() -> dict[str, Any]:
-    return {
-        "estimates": [
-            {
-                "id": "est-ai-001",
-                "lon": -80.272,
-                "lat": 25.967,
-                "freq_band": "1.8 GHz",
-                "confidence_score": 0.58,
-                "confidence_major_m": 450,
-                "confidence_minor_m": 190,
-                "sample_count": 12,
-            }
-        ]
-    }
-
-
-def build_estimate_features(analysis: dict[str, Any]) -> list[dict[str, Any]]:
-    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    features: list[dict[str, Any]] = []
-    for est in analysis.get("estimates", [])[:5]:
-        features.append({
-            "type": "Feature",
-            "geometry": {"type": "Point", "coordinates": [est["lon"], est["lat"]]},
-            "properties": {
-                "id": est["id"],
-                "kind": "estimate",
-                "name": "AI Estimated Emitter",
-                "freq_band": est["freq_band"],
-                "confidence_major_m": est["confidence_major_m"],
-                "confidence_minor_m": est["confidence_minor_m"],
-                "confidence_score": est["confidence_score"],
-                "sample_count": est["sample_count"],
-                "timestamp": now,
-                "source": "local_llm_assessment",
-            },
-        })
-    return features
-
-
-def run_assessment_cycle() -> None:
-    samples = load_telemetry()
-    summary = summarize_telemetry(samples)
-    try:
-        analysis = ask_ollama(summary)
-    except Exception:
-        analysis = fallback_estimates()
-    features = build_estimate_features(analysis)
-    with state.lock:
-        state.latest_assessment = summary
-        state.estimated_features = features
-        state.loop_error = None
-
-
-def analysis_loop() -> None:
-    with state.lock:
-        state.loop_running = True
-    while True:
-        try:
-            run_assessment_cycle()
-        except Exception as exc:
-            with state.lock:
-                state.loop_error = str(exc)
-        time.sleep(15)
-
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    threading.Thread(target=analysis_loop, daemon=True).start()
-    yield
-
-
-app = FastAPI(title="AntennaMAP API", version="0.3.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+def _read_jsonl(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    rows = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            rows.append(json.loads(line))
+    return rows
 
 
 @app.get("/api/health")
-def health() -> dict[str, Any]:
-    with state.lock:
-        return {
-            "status": "ok",
-            "service": "antennamap",
-            "ai_loop_running": state.loop_running,
-            "ai_loop_error": state.loop_error,
-        }
-
-
-@app.get("/api/assessment")
-def assessment() -> dict[str, Any]:
-    with state.lock:
-        return {
-            "latest_assessment": state.latest_assessment,
-            "estimated_feature_count": len(state.estimated_features),
-        }
+def health() -> dict:
+    return {"status": "ok", "service": "antennamap"}
 
 
 @app.get("/api/features")
-def get_features(kind: str | None = Query(default=None, pattern="^(infrastructure|estimate)?$"), timestamp_lte: str | None = None) -> dict[str, Any]:
+def get_features(kind: str | None = Query(default=None, pattern="^(infrastructure|estimate)?$"), timestamp_lte: str | None = None) -> dict:
     data = load_geojson()
-    with state.lock:
-        features = data["features"] + list(state.estimated_features)
+    telemetry = load_telemetry_samples()
+    features = [enrich_feature(f, telemetry) for f in data["features"]]
 
     if kind:
         features = [f for f in features if f["properties"].get("kind") == kind]
     if timestamp_lte:
         cutoff = datetime.fromisoformat(timestamp_lte.replace("Z", "+00:00"))
         features = [f for f in features if datetime.fromisoformat(f["properties"]["timestamp"].replace("Z", "+00:00")) <= cutoff]
-
     return {"type": "FeatureCollection", "features": features}
+
+
+@app.post("/api/pipeline/ingest")
+def ingest_pipeline(model_version: str = "baseline-v1") -> dict:
+    raw_samples = _load_json(TELEMETRY_FILE)
+    ingestion_result = ingest_telemetry(raw_samples, INGEST_LOG_FILE)
+    summary = summarize_telemetry(ingestion_result.accepted)
+
+    inference_outputs = [
+        {
+            "timestamp": s["timestamp"],
+            "predicted_bearing_deg": s["bearing_deg"],
+            "observed_bearing_deg": s["bearing_deg"],
+            "abs_error_deg": 0.0,
+        }
+        for s in ingestion_result.accepted
+    ]
+    drift_error = 0.0
+
+    timestamps = [datetime.fromisoformat(s["timestamp"].replace("Z", "+00:00")) for s in ingestion_result.accepted]
+    data_window = {
+        "start": min(timestamps).isoformat() if timestamps else None,
+        "end": max(timestamps).isoformat() if timestamps else None,
+    }
+
+    run_id = datetime.now(tz=timezone.utc).isoformat()
+    run_metadata = {
+        "run_id": run_id,
+        "model_version": model_version,
+        "data_window": data_window,
+        "metrics": {
+            **ingestion_result.quality_metrics,
+            "drift_error": drift_error,
+            "post_hoc_mae_deg": 0.0,
+            "inference_outputs": inference_outputs,
+            "summary": summary,
+        },
+    }
+    _append_jsonl(RUN_METADATA_FILE, run_metadata)
+
+    historical = _read_jsonl(RUN_METADATA_FILE)
+    retraining = evaluate_retraining_triggers(historical)
+
+    return {
+        "ingestion": ingestion_result.quality_metrics,
+        "run_metadata": run_metadata,
+        "retraining": retraining,
+    }
+
+
+@app.get("/api/model/metrics")
+def model_metrics() -> dict:
+    runs = _read_jsonl(RUN_METADATA_FILE)
+    latest = runs[-1] if runs else None
+    retraining = evaluate_retraining_triggers(runs)
+    return {"latest": latest, "runs": runs, "retraining": retraining}
 
 
 app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")
