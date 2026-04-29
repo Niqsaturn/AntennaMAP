@@ -1,106 +1,39 @@
-const MAP_STYLES = {
-  primary: 'https://demotiles.maplibre.org/style.json',
-  backup: 'https://tiles.openfreemap.org/styles/bright',
-};
-
-const map = new maplibregl.Map({
-  container: 'map',
-  style: MAP_STYLES.primary,
-  center: [-80.27, 25.97],
-  zoom: 11,
-  pitch: 58,
-  bearing: -20,
-  antialias: true,
-});
+const map = new maplibregl.Map({ container: 'map', style: 'https://demotiles.maplibre.org/style.json', center: [-80.27, 25.97], zoom: 11, pitch: 58, bearing: -20, antialias: true });
 
 const details = document.getElementById('details');
 const infraToggle = document.getElementById('infraToggle');
 const estToggle = document.getElementById('estToggle');
-const beamLinesToggle = document.getElementById('beamLinesToggle');
-const coverageToggle = document.getElementById('coverageToggle');
+const rayToggle = document.getElementById('rayToggle');
+const sectorToggle = document.getElementById('sectorToggle');
 const confidenceToggle = document.getElementById('confidenceToggle');
 const timeRange = document.getElementById('timeRange');
 const timeLabel = document.getElementById('timeLabel');
 const modelSelect = document.getElementById('propModel');
-const mapWarningPanel = document.getElementById('mapWarning');
-const statusBaseMap = document.getElementById('statusBaseMap');
-const statusFeatureCount = document.getElementById('statusFeatureCount');
-const statusAssessmentLoop = document.getElementById('statusAssessmentLoop');
-
+const loopStatus = document.getElementById('loopStatus');
 let allFeatures = [];
 let sortedTimes = [];
-let selectedSiteId = null;
-let fallbackInProgress = false;
-let fallbackApplied = false;
-let sourcesInitialized = false;
-let assessmentLoopRunning = false;
 
-function setStatus(element, value, state = 'ok') {
-  element.textContent = value;
-  element.classList.remove('ok', 'warn', 'err');
-  element.classList.add(state);
-}
-
-function updateFeatureCount(count) {
-  setStatus(statusFeatureCount, String(count), count > 0 ? 'ok' : 'warn');
-}
-
-function setAssessmentLoopStatus(running) {
-  assessmentLoopRunning = running;
-  setStatus(statusAssessmentLoop, running ? 'running' : 'idle', running ? 'ok' : 'warn');
-}
-
-function showMapWarning(message) {
-  mapWarningPanel.hidden = false;
-  mapWarningPanel.textContent = message;
-}
-
-function hideMapWarning() {
-  mapWarningPanel.hidden = true;
-  mapWarningPanel.textContent = '';
-}
-
-function ensureAntennaSource() {
-  const source = map.getSource('antennas');
-  if (!source) {
-    setStatus(statusFeatureCount, 'source unavailable', 'err');
-    showMapWarning('Feature layer is not ready yet. Retrying when map sources initialize.');
-    return null;
-  }
-  return source;
-}
-
-const inferredHtml = (p) => {
-  const e = p.estimated_elements || {};
-  return `Antenna Type: ${p.antenna_type ?? 'unknown'} (${((p.type_confidence ?? 0) * 100).toFixed(0)}%)<br>` +
-    `Beamwidth: ${e.estimated_beamwidth_deg ?? 'N/A'}°<br>` +
-    `Orientation: ${e.array_orientation_deg ?? 'N/A'}°<br>` +
-    `Sectors: ${e.sector_count ?? 'N/A'}<br>` +
-    `Tilt: ${e.tilt_estimate_deg ?? 'N/A'}°<br>` +
-    `Polarization: ${e.polarization_class ?? 'N/A'}<br>` +
-    `Gain: ${e.gain_bucket ?? 'N/A'}`;
-};
-
-const popupHtml = (p) => p.kind === 'infrastructure'
-  ? `<strong>${p.name}</strong><br>ID: ${p.id}<br>Type: ${p.structure_type}<br>Pattern: ${p.directionality}<br>Azimuth: ${p.azimuth_deg ?? 'N/A'}°<br>RF: ${p.rf_min_mhz}-${p.rf_max_mhz} MHz<br>${inferredHtml(p)}<br>Timestamp: ${p.timestamp}`
-  : `<strong>${p.name}</strong><br>ID: ${p.id}<br>Band: ${p.freq_band}<br>Confidence: ${(p.confidence_score * 100).toFixed(0)}%<br>Ellipse: ${p.confidence_major_m}m × ${p.confidence_minor_m}m<br>Samples: ${p.sample_count}<br>${inferredHtml(p)}<br>Timestamp: ${p.timestamp}`;
+const popupHtml = (p) => `<strong>${p.name}</strong><br>ID: ${p.id}<br>Kind: ${p.kind}<br>Azimuth: ${p.azimuth_deg ?? 'N/A'}°<br>Beamwidth: ${p.beamwidth_deg ?? 'N/A'}°<br>Ray length: ${p.ray_length_m ?? 'N/A'} m<br>Sector radius: ${p.wedge_radius_m ?? 'N/A'} m<br>Confidence ellipse: ${p.confidence_major_m ?? 'N/A'}m × ${p.confidence_minor_m ?? 'N/A'}m`;
 
 function cutoffFromSlider() {
   const idx = Math.floor((Number(timeRange.value) / 100) * (sortedTimes.length - 1));
   return sortedTimes[idx] ?? sortedTimes[sortedTimes.length - 1];
 }
 
-async function refreshPropagation() {
-  if (!selectedSiteId || !map.getSource('prop-contours')) return;
-  const params = new URLSearchParams({ site_id: selectedSiteId, model: modelSelect.value });
-  const p = await fetch(`/api/propagation?${params}`).then(r => r.json());
-  const contours = Object.entries(p.snapshot.contours).map(([zone, info]) => ({
-    type: 'Feature',
-    properties: { zone },
-    geometry: info.polygon,
-  }));
-  map.getSource('prop-contours').setData({ type: 'FeatureCollection', features: contours });
-  details.innerHTML = `${details.innerHTML}<hr><strong>Propagation:</strong> ${p.snapshot.model}<br>Uncertainty ±${p.snapshot.uncertainty.sigma_db} dB`;
+function asFeature(siteFeature, geometry, overlayType) {
+  if (!geometry) return null;
+  return { type: 'Feature', geometry, properties: { ...siteFeature.properties, overlay_type: overlayType } };
+}
+
+
+async function refreshLoopStatus() {
+  try {
+    const status = await fetch('/api/loop/status').then((r) => r.json());
+    const lastSuccess = status.last_run?.last_successful_run_at ?? 'never';
+    loopStatus.innerHTML = `<strong>Loop:</strong> ${status.active ? 'running' : 'paused'}<br><strong>Provider:</strong> ${status.config.provider}<br><strong>Model:</strong> ${status.config.model}<br><strong>Interval:</strong> ${status.config.interval_seconds}s<br><strong>Last successful run:</strong> ${lastSuccess}`;
+  } catch (_err) {
+    loopStatus.textContent = 'Loop: unavailable';
+  }
 }
 
 async function refreshSource() {
@@ -109,85 +42,48 @@ async function refreshSource() {
   setAssessmentLoopStatus(true);
   const cutoff = cutoffFromSlider();
   timeLabel.textContent = `Cutoff: ${cutoff}`;
-  const params = new URLSearchParams({ timestamp_lte: cutoff });
+  const data = await fetch(`/api/features?timestamp_lte=${encodeURIComponent(cutoff)}`).then((r) => r.json());
+  const visibleSites = data.features.filter((f) => (f.properties.kind === 'infrastructure' && infraToggle.checked) || (f.properties.kind === 'estimate' && estToggle.checked));
 
-  try {
-    const [featureData, countData] = await Promise.all([
-      fetch(`/api/features?${params}`).then((r) => r.json()),
-      fetch(`/api/features/count?${params}`).then((r) => r.json()),
-    ]);
+  const rays = [];
+  const sectors = [];
+  const confidence = [];
+  visibleSites.forEach((f) => {
+    const overlays = f.properties.overlay_geometries || {};
+    const ray = asFeature(f, overlays.direction_ray, 'direction_ray');
+    const sector = asFeature(f, overlays.sector_wedge, 'sector_wedge');
+    const ellipse = asFeature(f, overlays.confidence_ellipse, 'confidence_ellipse');
+    if (ray) rays.push(ray);
+    if (sector) sectors.push(sector);
+    if (ellipse) confidence.push(ellipse);
+  });
 
-    const filtered = featureData.features.filter((f) => {
-      return (f.properties.kind === 'infrastructure' && infraToggle.checked)
-        || (f.properties.kind === 'estimate' && estToggle.checked);
-    });
-
-    const source = ensureAntennaSource();
-    if (!source) return;
-
-    source.setData({ type: 'FeatureCollection', features: filtered });
-    updateFeatureCount(countData.count ?? filtered.length);
-
-    if (!selectedSiteId) {
-      const first = filtered.find(f => f.properties.kind === 'infrastructure');
-      selectedSiteId = first?.properties?.id;
-    }
-    await refreshPropagation();
-  } catch (error) {
-    updateFeatureCount(0);
-    showMapWarning(`Feature refresh failed: ${error?.message ?? 'unknown error'}`);
-  } finally {
-    setAssessmentLoopStatus(false);
-  }
+  map.getSource('sites').setData({ type: 'FeatureCollection', features: visibleSites });
+  map.getSource('rays').setData({ type: 'FeatureCollection', features: rayToggle.checked ? rays : [] });
+  map.getSource('sectors').setData({ type: 'FeatureCollection', features: sectorToggle.checked ? sectors : [] });
+  map.getSource('confidence').setData({ type: 'FeatureCollection', features: confidenceToggle.checked ? confidence : [] });
 }
-
-map.on('error', (event) => {
-  const message = event?.error?.message ?? 'Unknown map rendering error';
-  setStatus(statusBaseMap, 'error', 'err');
-  showMapWarning(`Base map error detected: ${message}`);
-
-  if (!fallbackInProgress && !fallbackApplied) {
-    fallbackInProgress = true;
-    showMapWarning('Primary base map failed. Switching to backup style…');
-    map.setStyle(MAP_STYLES.backup);
-    fallbackApplied = true;
-  }
-});
-
-map.on('style.load', () => {
-  fallbackInProgress = false;
-  hideMapWarning();
-  setStatus(statusBaseMap, fallbackApplied ? 'loaded (backup)' : 'loaded (primary)', 'ok');
-});
 
 map.on('load', async () => {
   map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
   const seed = await fetch('/api/features').then((r) => r.json());
-  allFeatures = seed.features;
-  sortedTimes = [...new Set(allFeatures.map((f) => f.properties.timestamp))].sort();
+  sortedTimes = [...new Set(seed.features.map((f) => f.properties.timestamp))].sort();
 
-  map.addSource('antennas', { type: 'geojson', data: seed });
-  map.addSource('prop-contours', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-  sourcesInitialized = true;
+  map.addSource('sites', { type: 'geojson', data: seed });
+  map.addSource('rays', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('sectors', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('confidence', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
 
-  map.addLayer({ id: 'infra-layer', type: 'circle', source: 'antennas', filter: ['==', ['get', 'kind'], 'infrastructure'], paint: { 'circle-radius': 8, 'circle-color': '#53b7ff', 'circle-stroke-width': 1, 'circle-stroke-color': '#fff' } });
-  map.addLayer({ id: 'estimate-layer', type: 'circle', source: 'antennas', filter: ['==', ['get', 'kind'], 'estimate'], paint: { 'circle-radius': 10, 'circle-color': '#ff8459', 'circle-opacity': 0.8, 'circle-stroke-width': 1, 'circle-stroke-color': '#fff' } });
-  map.addLayer({ id: 'prop-fill', type: 'fill', source: 'prop-contours', paint: { 'fill-color': ['match', ['get', 'zone'], 'strong', '#00ff66', 'moderate', '#ffd53d', '#ff4f6d'], 'fill-opacity': 0.18 } });
-  map.addLayer({ id: 'prop-line', type: 'line', source: 'prop-contours', paint: { 'line-color': '#ffffff', 'line-width': 1.2 } });
+  map.addLayer({ id: 'infra-layer', type: 'circle', source: 'sites', filter: ['==', ['get', 'kind'], 'infrastructure'], paint: { 'circle-radius': 7, 'circle-color': '#4ea8ff', 'circle-stroke-width': 1, 'circle-stroke-color': '#fff' } });
+  map.addLayer({ id: 'estimate-layer', type: 'circle', source: 'sites', filter: ['==', ['get', 'kind'], 'estimate'], paint: { 'circle-radius': 9, 'circle-color': '#ff8459', 'circle-opacity': 0.85, 'circle-stroke-width': 1, 'circle-stroke-color': '#fff' } });
+  map.addLayer({ id: 'ray-layer', type: 'line', source: 'rays', paint: { 'line-color': '#88d8ff', 'line-width': 2 } });
+  map.addLayer({ id: 'sector-layer', type: 'fill', source: 'sectors', paint: { 'fill-color': '#7ac37a', 'fill-opacity': 0.2 } });
+  map.addLayer({ id: 'confidence-layer', type: 'fill', source: 'confidence', paint: { 'fill-color': '#ffc857', 'fill-opacity': 0.2 } });
 
-  ['infra-layer', 'estimate-layer'].forEach((layer) => {
-    map.on('click', layer, async (e) => {
-      const f = e.features?.[0];
-      if (!f) return;
-      details.innerHTML = popupHtml(f.properties);
-      if (f.properties.kind === 'infrastructure') {
-        selectedSiteId = f.properties.id;
-        await refreshPropagation();
-      }
-    });
-  });
+  ['infra-layer', 'estimate-layer'].forEach((layer) => map.on('click', layer, (e) => { const f = e.features?.[0]; if (f) details.innerHTML = popupHtml(f.properties); }));
 
-  [infraToggle, estToggle, timeRange, modelSelect].forEach((el) => el.addEventListener('input', refreshSource));
-  updateFeatureCount(seed.features.length);
+  [infraToggle, estToggle, rayToggle, sectorToggle, confidenceToggle, timeRange].forEach((el) => el.addEventListener('input', refreshSource));
   refreshSource();
+  refreshLoopStatus();
+  setInterval(refreshLoopStatus, 10000);
 });
