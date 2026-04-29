@@ -1,3 +1,6 @@
-
 __pycache__/
 *.pyc
+.venv/
+backend/pipeline/data/
+backend/ingest/data/
+models/*.json
