@@ -12,41 +12,22 @@
   <aside class="panel">
     <h1>AntennaMAP Starter</h1>
     <p class="muted">Miramar pilot · informational RF metadata only</p>
-    <div class="tabs">
-      <button class="tab active" data-tab="site">Site Info</button>
-      <button class="tab" data-tab="spectrum">Spectrum</button>
-      <button class="tab" data-tab="foxhunt">Foxhunt</button>
-    </div>
-
-    <section class="tab-panel active" id="tab-site">
-      <label><input id="infraToggle" type="checkbox" checked> Infrastructure</label>
-      <label><input id="estToggle" type="checkbox" checked> Estimated emitters</label>
-      <label><input id="beamLinesToggle" type="checkbox" checked> Beam Lines</label>
-      <label><input id="coverageToggle" type="checkbox" checked> Coverage Wedges</label>
-      <label><input id="confidenceToggle" type="checkbox" checked> Confidence Footprints</label>
-      <label for="propModel">Propagation model</label>
-      <select id="propModel">
-        <option value="fspl">FSPL</option>
-        <option value="hata_urban">Hata (Urban)</option>
-        <option value="hata_suburban">Hata (Suburban)</option>
-      </select>
-      <div id="details" class="details">Click markers for metadata.</div>
-    </section>
-
-    <section class="tab-panel" id="tab-spectrum">
-      <div id="provenance" class="muted"></div>
-      <canvas id="waterfall" width="280" height="120"></canvas>
-      <div id="occupancyTrend" class="chart-block"></div>
-      <div id="spectralStats" class="details"></div>
-    </section>
-
-    <section class="tab-panel" id="tab-foxhunt">
-      <div class="details">Foxhunt workflow placeholder: use map click + spectrum context to identify likely emitters.</div>
-    </section>
-
-    <label for="timeRange">Global time window</label>
+    <label><input id="infraToggle" type="checkbox" checked> Infrastructure</label>
+    <label><input id="estToggle" type="checkbox" checked> Estimated emitters</label>
+    <label><input id="rayToggle" type="checkbox" checked> Directional Rays</label>
+    <label><input id="sectorToggle" type="checkbox" checked> Sector Polygons</label>
+    <label><input id="confidenceToggle" type="checkbox" checked> Confidence Ellipses</label>
+    <label for="timeRange">Time cutoff</label>
     <input id="timeRange" type="range" min="0" max="100" value="100" />
     <div id="timeLabel" class="muted"></div>
+    <label for="propModel">Propagation model</label>
+    <select id="propModel">
+      <option value="fspl">FSPL</option>
+      <option value="hata_urban">Hata (Urban)</option>
+      <option value="hata_suburban">Hata (Suburban)</option>
+    </select>
+    <div id="loopStatus" class="loop-status">Loop: loading...</div>
+    <div id="details" class="details">Click markers for metadata.</div>
   </aside>
   <script src="https://unpkg.com/maplibre-gl@4.3.2/dist/maplibre-gl.js"></script>
   <script type="module" src="./main.js"></script>

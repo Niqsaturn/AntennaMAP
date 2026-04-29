@@ -71,3 +71,29 @@ def test_propagation_endpoint_contains_transparency_metadata():
     assert "uncertainty" in payload["snapshot"]
     assert "assumptions" in payload["snapshot"]
     assert "contours" in payload["snapshot"]
+
+def test_loop_pause_resume_config_lifecycle():
+    client = TestClient(app)
+
+    pause_resp = client.post('/api/loop/pause')
+    assert pause_resp.status_code == 200
+    assert pause_resp.json()['active'] is False
+
+    config_resp = client.post('/api/loop/config', params={'interval_seconds': 5, 'provider': 'mock', 'model': 'v2'})
+    assert config_resp.status_code == 200
+    cfg = config_resp.json()['config']
+    assert cfg['interval_seconds'] == 5
+    assert cfg['provider'] == 'mock'
+    assert cfg['model'] == 'v2'
+
+    resume_resp = client.post('/api/loop/resume')
+    assert resume_resp.status_code == 200
+    assert resume_resp.json()['active'] is True
+
+    status_resp = client.get('/api/loop/status')
+    assert status_resp.status_code == 200
+    status = status_resp.json()
+    assert status['active'] is True
+    assert status['config']['provider'] == 'mock'
+
+    client.post('/api/loop/pause')

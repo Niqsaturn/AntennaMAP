@@ -3,79 +3,83 @@ const map = new maplibregl.Map({ container: 'map', style: 'https://demotiles.map
 const details = document.getElementById('details');
 const infraToggle = document.getElementById('infraToggle');
 const estToggle = document.getElementById('estToggle');
-const beamLinesToggle = document.getElementById('beamLinesToggle');
-const coverageToggle = document.getElementById('coverageToggle');
+const rayToggle = document.getElementById('rayToggle');
+const sectorToggle = document.getElementById('sectorToggle');
 const confidenceToggle = document.getElementById('confidenceToggle');
 const timeRange = document.getElementById('timeRange');
 const timeLabel = document.getElementById('timeLabel');
 const modelSelect = document.getElementById('propModel');
-const provenance = document.getElementById('provenance');
-const occupancyTrend = document.getElementById('occupancyTrend');
-const spectralStats = document.getElementById('spectralStats');
-const waterfall = document.getElementById('waterfall');
-const tabs = document.querySelectorAll('.tab');
-const tabPanels = document.querySelectorAll('.tab-panel');
+const loopStatus = document.getElementById('loopStatus');
 let allFeatures = [];
 let sortedTimes = [];
-let selectedSiteId = null;
 
-const popupHtml = (p) => `<strong>${p.name}</strong><br>ID: ${p.id}<br>Kind: ${p.kind}<br>Timestamp: ${p.timestamp}`;
+const popupHtml = (p) => `<strong>${p.name}</strong><br>ID: ${p.id}<br>Kind: ${p.kind}<br>Azimuth: ${p.azimuth_deg ?? 'N/A'}°<br>Beamwidth: ${p.beamwidth_deg ?? 'N/A'}°<br>Ray length: ${p.ray_length_m ?? 'N/A'} m<br>Sector radius: ${p.wedge_radius_m ?? 'N/A'} m<br>Confidence ellipse: ${p.confidence_major_m ?? 'N/A'}m × ${p.confidence_minor_m ?? 'N/A'}m`;
+
+
+function formatFreqHz(hz) {
+  return `${(hz / 1_000_000).toFixed(3)} MHz`;
+}
+
+async function refreshSdrStatus() {
+  const response = await fetch('/api/sdr/capabilities');
+  const data = await response.json();
+  const active = data.active_config;
+  const modelMeta = data.capabilities.models[active.model] || {};
+  sdrStatus.innerHTML = `<strong>Device:</strong> ${modelMeta.label || active.model}<br>` +
+    `<strong>Model ID:</strong> ${active.model}<br>` +
+    `<strong>Center:</strong> ${formatFreqHz(active.center_freq_hz)}<br>` +
+    `<strong>Sample Rate:</strong> ${active.sample_rate_sps.toLocaleString()} sps<br>` +
+    `<strong>Bandwidth:</strong> ${active.bandwidth_hz.toLocaleString()} Hz<br>` +
+    `<strong>Gain:</strong> ${active.gain_db} dB · <strong>PPM:</strong> ${active.ppm}`;
+}
 
 function cutoffFromSlider() {
   const idx = Math.floor((Number(timeRange.value) / 100) * (sortedTimes.length - 1));
   return sortedTimes[idx] ?? sortedTimes[sortedTimes.length - 1];
 }
 
-function renderWaterfall(payload) {
-  const ctx = waterfall.getContext('2d');
-  const { rows, times } = payload;
-  const cellW = waterfall.width / Math.max(times.length, 1);
-  const cellH = waterfall.height / Math.max(rows.length, 1);
-  ctx.clearRect(0, 0, waterfall.width, waterfall.height);
-  rows.forEach((row, y) => row.values.forEach((value, x) => {
-    const norm = value === null ? 0 : Math.max(0, Math.min(1, (value + 110) / 60));
-    const hue = 240 - (norm * 240);
-    ctx.fillStyle = value === null ? '#243144' : `hsl(${hue}, 80%, 50%)`;
-    ctx.fillRect(x * cellW, y * cellH, cellW, cellH);
-  }));
+function asFeature(siteFeature, geometry, overlayType) {
+  if (!geometry) return null;
+  return { type: 'Feature', geometry, properties: { ...siteFeature.properties, overlay_type: overlayType } };
 }
 
-function renderOccupancy(bands) {
-  const maxSamples = Math.max(...bands.map((b) => b.sample_count), 1);
-  occupancyTrend.innerHTML = bands.map((band) => `<div class="chart-row">${band.band} (${band.avg_snr_db.toFixed(1)} dB)<span class="bar" style="width:${(band.sample_count / maxSamples) * 180}px"></span></div>`).join('');
-}
 
-async function refreshSpectrum() {
-  const cutoff = cutoffFromSlider();
-  const params = new URLSearchParams({ timestamp_lte: cutoff });
-  if (selectedSiteId) params.set('site_id', selectedSiteId);
-
-  const [waterfallData, occupancyData] = await Promise.all([
-    fetch(`/api/spectrum/waterfall?${params}`).then((r) => r.json()),
-    fetch(`/api/spectrum/occupancy?${params}`).then((r) => r.json()),
-  ]);
-
-  renderWaterfall(waterfallData);
-  renderOccupancy(occupancyData.bands);
-  spectralStats.innerHTML = `<strong>Spectral stats</strong><br>Site: ${occupancyData.site_id ?? 'none'}<br>Total samples: ${occupancyData.spectral_stats.total_samples}<br>Strongest band: ${occupancyData.spectral_stats.strongest_band ?? 'N/A'}`;
-  const p = waterfallData.provenance;
-  provenance.textContent = `Provenance: ${p.device_id} · ${p.adapter_type} · samples ${p.sample_count} · freshness ${p.freshness_seconds ?? 'n/a'}s`;
+async function refreshLoopStatus() {
+  try {
+    const status = await fetch('/api/loop/status').then((r) => r.json());
+    const lastSuccess = status.last_run?.last_successful_run_at ?? 'never';
+    loopStatus.innerHTML = `<strong>Loop:</strong> ${status.active ? 'running' : 'paused'}<br><strong>Provider:</strong> ${status.config.provider}<br><strong>Model:</strong> ${status.config.model}<br><strong>Interval:</strong> ${status.config.interval_seconds}s<br><strong>Last successful run:</strong> ${lastSuccess}`;
+  } catch (_err) {
+    loopStatus.textContent = 'Loop: unavailable';
+  }
 }
 
 async function refreshSource() {
+  if (!sourcesInitialized) return;
+
+  setAssessmentLoopStatus(true);
   const cutoff = cutoffFromSlider();
   timeLabel.textContent = `Cutoff: ${cutoff}`;
-  const params = new URLSearchParams({ timestamp_lte: cutoff });
+  const data = await fetch(`/api/features?timestamp_lte=${encodeURIComponent(cutoff)}`).then((r) => r.json());
+  const visibleSites = data.features.filter((f) => (f.properties.kind === 'infrastructure' && infraToggle.checked) || (f.properties.kind === 'estimate' && estToggle.checked));
 
-  const featureData = await fetch(`/api/features?${params}`).then((r) => r.json());
-  const filtered = featureData.features.filter((f) => (f.properties.kind === 'infrastructure' && infraToggle.checked) || (f.properties.kind === 'estimate' && estToggle.checked));
+  const rays = [];
+  const sectors = [];
+  const confidence = [];
+  visibleSites.forEach((f) => {
+    const overlays = f.properties.overlay_geometries || {};
+    const ray = asFeature(f, overlays.direction_ray, 'direction_ray');
+    const sector = asFeature(f, overlays.sector_wedge, 'sector_wedge');
+    const ellipse = asFeature(f, overlays.confidence_ellipse, 'confidence_ellipse');
+    if (ray) rays.push(ray);
+    if (sector) sectors.push(sector);
+    if (ellipse) confidence.push(ellipse);
+  });
 
-  map.getSource('antennas').setData({ type: 'FeatureCollection', features: filtered });
-  if (!selectedSiteId) {
-    const first = filtered.find((f) => f.properties.kind === 'infrastructure');
-    selectedSiteId = first?.properties?.id;
-  }
-  await refreshSpectrum();
+  map.getSource('sites').setData({ type: 'FeatureCollection', features: visibleSites });
+  map.getSource('rays').setData({ type: 'FeatureCollection', features: rayToggle.checked ? rays : [] });
+  map.getSource('sectors').setData({ type: 'FeatureCollection', features: sectorToggle.checked ? sectors : [] });
+  map.getSource('confidence').setData({ type: 'FeatureCollection', features: confidenceToggle.checked ? confidence : [] });
 }
 
 tabs.forEach((tab) => tab.addEventListener('click', () => {
@@ -88,25 +92,23 @@ tabs.forEach((tab) => tab.addEventListener('click', () => {
 map.on('load', async () => {
   map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
   const seed = await fetch('/api/features').then((r) => r.json());
-  allFeatures = seed.features;
-  sortedTimes = [...new Set(allFeatures.map((f) => f.properties.timestamp))].sort();
+  sortedTimes = [...new Set(seed.features.map((f) => f.properties.timestamp))].sort();
 
-  map.addSource('antennas', { type: 'geojson', data: seed });
-  map.addLayer({ id: 'infra-layer', type: 'circle', source: 'antennas', filter: ['==', ['get', 'kind'], 'infrastructure'], paint: { 'circle-radius': 8, 'circle-color': '#53b7ff', 'circle-stroke-width': 1, 'circle-stroke-color': '#fff' } });
-  map.addLayer({ id: 'estimate-layer', type: 'circle', source: 'antennas', filter: ['==', ['get', 'kind'], 'estimate'], paint: { 'circle-radius': 10, 'circle-color': '#ff8459', 'circle-opacity': 0.8, 'circle-stroke-width': 1, 'circle-stroke-color': '#fff' } });
+  map.addSource('sites', { type: 'geojson', data: seed });
+  map.addSource('rays', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('sectors', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('confidence', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
 
-  ['infra-layer', 'estimate-layer'].forEach((layer) => {
-    map.on('click', layer, async (e) => {
-      const f = e.features?.[0];
-      if (!f) return;
-      details.innerHTML = popupHtml(f.properties);
-      if (f.properties.kind === 'infrastructure') {
-        selectedSiteId = f.properties.id;
-        await refreshSpectrum();
-      }
-    });
-  });
+  map.addLayer({ id: 'infra-layer', type: 'circle', source: 'sites', filter: ['==', ['get', 'kind'], 'infrastructure'], paint: { 'circle-radius': 7, 'circle-color': '#4ea8ff', 'circle-stroke-width': 1, 'circle-stroke-color': '#fff' } });
+  map.addLayer({ id: 'estimate-layer', type: 'circle', source: 'sites', filter: ['==', ['get', 'kind'], 'estimate'], paint: { 'circle-radius': 9, 'circle-color': '#ff8459', 'circle-opacity': 0.85, 'circle-stroke-width': 1, 'circle-stroke-color': '#fff' } });
+  map.addLayer({ id: 'ray-layer', type: 'line', source: 'rays', paint: { 'line-color': '#88d8ff', 'line-width': 2 } });
+  map.addLayer({ id: 'sector-layer', type: 'fill', source: 'sectors', paint: { 'fill-color': '#7ac37a', 'fill-opacity': 0.2 } });
+  map.addLayer({ id: 'confidence-layer', type: 'fill', source: 'confidence', paint: { 'fill-color': '#ffc857', 'fill-opacity': 0.2 } });
 
-  [infraToggle, estToggle, beamLinesToggle, coverageToggle, confidenceToggle, timeRange, modelSelect].forEach((el) => el.addEventListener('input', refreshSource));
+  ['infra-layer', 'estimate-layer'].forEach((layer) => map.on('click', layer, (e) => { const f = e.features?.[0]; if (f) details.innerHTML = popupHtml(f.properties); }));
+
+  [infraToggle, estToggle, rayToggle, sectorToggle, confidenceToggle, timeRange].forEach((el) => el.addEventListener('input', refreshSource));
   refreshSource();
+  refreshLoopStatus();
+  setInterval(refreshLoopStatus, 10000);
 });
