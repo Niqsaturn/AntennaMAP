@@ -8,6 +8,8 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from backend.pipeline.compliance import COMPLIANCE_POLICY
+
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
@@ -23,7 +25,20 @@ class TelemetrySample(BaseModel):
     bearing_deg: float
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
+    region: str = Field(default="US", min_length=2, max_length=3)
+    frequency_mhz: float = Field(default=2450.0, gt=0)
 
+
+
+
+def _is_frequency_allowed(region: str, frequency_mhz: float) -> bool:
+    ranges = COMPLIANCE_POLICY["frequency_allowlist_mhz"].get(region.upper(), [])
+    return any(low <= frequency_mhz <= high for low, high in ranges)
+
+
+def _contains_payload_fields(sample: dict[str, Any]) -> bool:
+    blocked = {"payload", "payload_hex", "payload_bytes", "decoded_payload"}
+    return any(field in sample for field in blocked)
 
 @dataclass
 class IngestionResult:
@@ -68,6 +83,9 @@ def ingest_telemetry(samples: list[dict[str, Any]], append_path: Path) -> Ingest
     parsed_rows: list[TelemetrySample] = []
 
     for raw in samples:
+        if _contains_payload_fields(raw):
+            rejected.append({"reason": "payload_decode_forbidden", "sample": raw})
+            continue
         try:
             parsed_rows.append(TelemetrySample.model_validate(raw))
         except ValidationError as exc:
@@ -87,6 +105,9 @@ def ingest_telemetry(samples: list[dict[str, Any]], append_path: Path) -> Ingest
 
         if not (-20 <= row.snr_db <= 60):
             reasons.append("snr_out_of_range")
+
+        if not _is_frequency_allowed(row.region, row.frequency_mhz):
+            reasons.append("frequency_not_allowlisted")
 
         if prev is not None:
             if row.timestamp < prev.timestamp:

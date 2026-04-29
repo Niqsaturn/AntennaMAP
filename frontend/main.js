@@ -17,6 +17,7 @@ const confidenceToggle = document.getElementById('confidenceToggle');
 const timeRange = document.getElementById('timeRange');
 const timeLabel = document.getElementById('timeLabel');
 const modelSelect = document.getElementById('propModel');
+const compliance = document.getElementById('compliance');
 let allFeatures = [];
 let sortedTimes = [];
 let selectedSiteId = null;
@@ -90,6 +91,12 @@ async function refreshSource() {
   await refreshPropagation();
 }
 
+async function loadComplianceStatus() {
+  const h = await fetch('/api/health').then((r) => r.json());
+  const p = h.active_policy || {};
+  compliance.innerHTML = `Compliance: ${h.status} · policy ${p.policy_id || 'unknown'}<br>Metadata-only: ${p.metadata_only ? 'yes' : 'no'} · No decode: ${p.do_not_decode_payload ? 'yes' : 'no'}`;
+}
+
 map.on('load', async () => {
   map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
   const seed = await fetch('/api/features').then((r) => r.json());
@@ -116,5 +123,6 @@ map.on('load', async () => {
   });
 
   [infraToggle, estToggle, timeRange, modelSelect].forEach((el) => el.addEventListener('input', refreshSource));
+  await loadComplianceStatus();
   refreshSource();
 });

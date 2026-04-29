@@ -42,3 +42,14 @@ Open `http://localhost:8000`.
 - Time cutoff slider for timestamp filtering
 - Layer toggles for object categories
 - Informational-only dataset with no private payload content
+
+
+## Compliance-first SDR ingestion controls
+
+- **Do-not-decode guarantee (enforced in code):** ingestion rejects any samples containing payload/decode-oriented fields (`payload`, `payload_hex`, `payload_bytes`, `decoded_payload`).
+- **Metadata-only schema:** only timestamp, region, band/frequency, signal quality, bearing, and coarse geolocation are accepted.
+- **Regional legal band allowlist:** ingestion enforces configured frequency windows per region (US/EU/JP defaults).
+- **Audit logging:** start/stop events are emitted for each ingestion run; data-export events are logged for export-oriented endpoints (currently `/api/model/metrics`).
+- **Retention policy:** raw telemetry logs and aggregated governance metrics have independent retention windows (default raw=90 days, aggregated=365 days).
+- **Health transparency:** `/api/health` publishes compliance status and the active policy object, and the UI renders the active policy ID and metadata-only/decode flags.
+
