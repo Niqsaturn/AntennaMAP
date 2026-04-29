@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import yaml
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import FastAPI, Query
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -14,6 +17,83 @@ DATA_FILE = ROOT / "public" / "data" / "antenna_data.geojson"
 TELEMETRY_FILE = ROOT / "public" / "data" / "telemetry_samples.json"
 INGEST_LOG_FILE = ROOT / "backend" / "pipeline" / "data" / "telemetry_ingested.jsonl"
 RUN_METADATA_FILE = ROOT / "backend" / "pipeline" / "data" / "model_runs.jsonl"
+
+SDR_CAPABILITIES_FILE = ROOT / "backend" / "sdr" / "capabilities.yaml"
+
+
+class SDRConfigureRequest(BaseModel):
+    model: str
+    sample_rate_sps: int
+    center_freq_hz: int
+    bandwidth_hz: int
+    gain_db: float
+    ppm: int = 0
+
+
+def load_sdr_capabilities() -> dict:
+    return yaml.safe_load(SDR_CAPABILITIES_FILE.read_text(encoding="utf-8"))
+
+
+def _validate_range(field: str, value: float, limits: dict) -> dict | None:
+    low = limits["min"]
+    high = limits["max"]
+    if value < low or value > high:
+        return {
+            "field": field,
+            "message": f"{field} must be between {low} and {high}",
+            "requested": value,
+            "allowed": limits,
+            "error_code": "OUT_OF_RANGE",
+        }
+    return None
+
+
+def validate_sdr_config(payload: SDRConfigureRequest, capabilities: dict) -> list[dict]:
+    models = capabilities.get("models", {})
+    model_caps = models.get(payload.model)
+    if not model_caps:
+        return [{
+            "field": "model",
+            "message": f"Unsupported SDR model: {payload.model}",
+            "requested": payload.model,
+            "allowed": sorted(models.keys()),
+            "error_code": "UNSUPPORTED_MODEL",
+        }]
+
+    constraints = model_caps.get("constraints", {})
+    errors = []
+    for field in ["sample_rate_sps", "center_freq_hz", "bandwidth_hz", "gain_db", "ppm"]:
+        violation = _validate_range(field, getattr(payload, field), constraints[field])
+        if violation:
+            errors.append(violation)
+
+    if payload.bandwidth_hz > payload.sample_rate_sps:
+        errors.append({
+            "field": "bandwidth_hz",
+            "message": "bandwidth_hz cannot exceed sample_rate_sps",
+            "requested": payload.bandwidth_hz,
+            "allowed": {"max_relative_to": "sample_rate_sps"},
+            "error_code": "INVALID_COMBINATION",
+        })
+    return errors
+
+
+ACTIVE_SDR_CONFIG = None
+
+
+def _default_sdr_config() -> dict:
+    caps = load_sdr_capabilities()
+    default_model = caps["default_model"]
+    c = caps["models"][default_model]["constraints"]
+    return {
+        "model": default_model,
+        "sample_rate_sps": c["sample_rate_sps"]["min"],
+        "center_freq_hz": c["center_freq_hz"]["min"],
+        "bandwidth_hz": c["bandwidth_hz"]["min"],
+        "gain_db": c["gain_db"]["min"],
+        "ppm": 0,
+    }
+
 
 app = FastAPI(title="AntennaMAP API", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -134,6 +214,34 @@ def model_metrics() -> dict:
     latest = runs[-1] if runs else None
     retraining = evaluate_retraining_triggers(runs)
     return {"latest": latest, "runs": runs, "retraining": retraining}
+
+
+
+@app.get("/api/sdr/capabilities")
+def get_sdr_capabilities() -> dict:
+    global ACTIVE_SDR_CONFIG
+    if ACTIVE_SDR_CONFIG is None:
+        ACTIVE_SDR_CONFIG = _default_sdr_config()
+    return {"capabilities": load_sdr_capabilities(), "active_config": ACTIVE_SDR_CONFIG}
+
+
+@app.post("/api/sdr/configure")
+def configure_sdr(payload: SDRConfigureRequest):
+    global ACTIVE_SDR_CONFIG
+    capabilities = load_sdr_capabilities()
+    errors = validate_sdr_config(payload, capabilities)
+    if errors:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": "SDR_CONFIGURATION_INVALID",
+                "message": "Requested SDR configuration is unsupported.",
+                "details": errors,
+            },
+        )
+
+    ACTIVE_SDR_CONFIG = payload.model_dump()
+    return {"status": "configured", "active_config": ACTIVE_SDR_CONFIG}
 
 
 app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")

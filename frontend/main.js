@@ -17,6 +17,7 @@ const confidenceToggle = document.getElementById('confidenceToggle');
 const timeRange = document.getElementById('timeRange');
 const timeLabel = document.getElementById('timeLabel');
 const modelSelect = document.getElementById('propModel');
+const sdrStatus = document.getElementById('sdrStatus');
 let allFeatures = [];
 let sortedTimes = [];
 let selectedSiteId = null;
@@ -37,6 +38,24 @@ const popupHtml = (p) => p.kind === 'infrastructure'
   : `<strong>${p.name}</strong><br>ID: ${p.id}<br>Band: ${p.freq_band}<br>Confidence: ${(p.confidence_score * 100).toFixed(0)}%<br>Ellipse: ${p.confidence_major_m}m × ${p.confidence_minor_m}m<br>Samples: ${p.sample_count}<br>${inferredHtml(p)}<br>Timestamp: ${p.timestamp}`;
 
 const beamHtml = (p) => `<strong>${p.source_name}</strong><br>Source: ${p.source_id} (${p.source_kind})<br>Layer: ${p.beam_type}<br>Azimuth: ${p.azimuth_deg.toFixed(1)}°<br>Beamwidth: ${p.beamwidth_deg.toFixed(1)}°<br>Tilt proxy: ${p.tilt_proxy_deg.toFixed(1)}°<br>Power class: ${p.power_class}<br>Radius: ${p.radius_m.toFixed(1)} m<br>Timestamp: ${p.timestamp}<br>Assumptions: ${p.assumptions}`;
+
+
+function formatFreqHz(hz) {
+  return `${(hz / 1_000_000).toFixed(3)} MHz`;
+}
+
+async function refreshSdrStatus() {
+  const response = await fetch('/api/sdr/capabilities');
+  const data = await response.json();
+  const active = data.active_config;
+  const modelMeta = data.capabilities.models[active.model] || {};
+  sdrStatus.innerHTML = `<strong>Device:</strong> ${modelMeta.label || active.model}<br>` +
+    `<strong>Model ID:</strong> ${active.model}<br>` +
+    `<strong>Center:</strong> ${formatFreqHz(active.center_freq_hz)}<br>` +
+    `<strong>Sample Rate:</strong> ${active.sample_rate_sps.toLocaleString()} sps<br>` +
+    `<strong>Bandwidth:</strong> ${active.bandwidth_hz.toLocaleString()} Hz<br>` +
+    `<strong>Gain:</strong> ${active.gain_db} dB · <strong>PPM:</strong> ${active.ppm}`;
+}
 
 function cutoffFromSlider() {
   const idx = Math.floor((Number(timeRange.value) / 100) * (sortedTimes.length - 1));
@@ -116,5 +135,6 @@ map.on('load', async () => {
   });
 
   [infraToggle, estToggle, timeRange, modelSelect].forEach((el) => el.addEventListener('input', refreshSource));
+  await refreshSdrStatus();
   refreshSource();
 });
