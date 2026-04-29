@@ -1,29 +1,15 @@
 param(
-  [string]$InstallDir = "$HOME\AntennaMAP",
-  [string]$Branch = "main",
-  [string]$RepoUrl = ""
+  [string]$InstallDir = "$HOME\Desktop\AntennaMAP",
+  [string]$Branch = "main"
 )
 
 $ErrorActionPreference = 'Stop'
 
-function Get-RepoUrl {
-  param([string]$Provided)
-  if ($Provided -and $Provided.Trim().Length -gt 0) { return $Provided }
-  throw "RepoUrl is required when InstallDir does not contain a git repo. Use -RepoUrl https://github.com/<you>/AntennaMAP.git"
-}
-
 if (!(Test-Path $InstallDir)) {
-  $repo = Get-RepoUrl -Provided $RepoUrl
-  Write-Host "[AntennaMAP] Install directory missing. Cloning to: $InstallDir"
-  git clone --branch $Branch $repo $InstallDir
+  throw "Install directory not found: $InstallDir"
 }
-
-$gitDir = Join-Path $InstallDir '.git'
-if (!(Test-Path $gitDir)) {
-  $repo = Get-RepoUrl -Provided $RepoUrl
-  Write-Host "[AntennaMAP] Directory exists but is not a git repo. Re-cloning..."
-  Remove-Item -Recurse -Force $InstallDir
-  git clone --branch $Branch $repo $InstallDir
+if (!(Test-Path (Join-Path $InstallDir '.git'))) {
+  throw "Directory exists but is not a git repo: $InstallDir"
 }
 
 Set-Location $InstallDir

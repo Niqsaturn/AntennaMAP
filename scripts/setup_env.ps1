@@ -16,6 +16,3 @@ Write-Host "[AntennaMAP] Installing dependencies..."
 Write-Host "[AntennaMAP] Running tests..."
 $env:PYTHONPATH='.'
 & $VenvPython -m pytest -q
-
-Write-Host "[AntennaMAP] Import smoke check"
-& $VenvPython -c "import backend.main as m; print('BaseModel:', bool(getattr(m, 'BaseModel', None)))"
