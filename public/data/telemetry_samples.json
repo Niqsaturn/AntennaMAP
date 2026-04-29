@@ -1,0 +1,6 @@
+[
+  {"timestamp":"2026-04-29T11:01:00Z","band":"1.8 GHz","rssi_dbm":-61,"snr_db":18.2,"bearing_deg":122,"lat":25.968,"lon":-80.279},
+  {"timestamp":"2026-04-29T11:02:30Z","band":"1.8 GHz","rssi_dbm":-64,"snr_db":16.8,"bearing_deg":126,"lat":25.972,"lon":-80.271},
+  {"timestamp":"2026-04-29T11:04:10Z","band":"900 MHz","rssi_dbm":-70,"snr_db":12.1,"bearing_deg":95,"lat":25.961,"lon":-80.291},
+  {"timestamp":"2026-04-29T11:06:00Z","band":"900 MHz","rssi_dbm":-73,"snr_db":10.5,"bearing_deg":101,"lat":25.955,"lon":-80.286}
+]

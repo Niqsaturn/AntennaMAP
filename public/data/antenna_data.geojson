@@ -1,0 +1,3365 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.261995,
+          25.733187
+        ]
+      },
+      "properties": {
+        "id": "mia-site-001",
+        "kind": "infrastructure",
+        "name": "Miami Site 001",
+        "structure_type": "Tower",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.253205,
+          25.71276
+        ]
+      },
+      "properties": {
+        "id": "mia-site-002",
+        "kind": "infrastructure",
+        "name": "Miami Site 002",
+        "structure_type": "Tower",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.242184,
+          25.752946
+        ]
+      },
+      "properties": {
+        "id": "mia-site-003",
+        "kind": "infrastructure",
+        "name": "Miami Site 003",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 270,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.197569,
+          25.828259
+        ]
+      },
+      "properties": {
+        "id": "mia-site-004",
+        "kind": "infrastructure",
+        "name": "Miami Site 004",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.319586,
+          25.748638
+        ]
+      },
+      "properties": {
+        "id": "mia-site-005",
+        "kind": "infrastructure",
+        "name": "Miami Site 005",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.216456,
+          25.825601
+        ]
+      },
+      "properties": {
+        "id": "mia-site-006",
+        "kind": "infrastructure",
+        "name": "Miami Site 006",
+        "structure_type": "Tower",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.195828,
+          25.781927
+        ]
+      },
+      "properties": {
+        "id": "mia-site-007",
+        "kind": "infrastructure",
+        "name": "Miami Site 007",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.286749,
+          25.849688
+        ]
+      },
+      "properties": {
+        "id": "mia-site-008",
+        "kind": "infrastructure",
+        "name": "Miami Site 008",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 210,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.254068,
+          25.754654
+        ]
+      },
+      "properties": {
+        "id": "mia-site-009",
+        "kind": "infrastructure",
+        "name": "Miami Site 009",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.209371,
+          25.815543
+        ]
+      },
+      "properties": {
+        "id": "mia-site-010",
+        "kind": "infrastructure",
+        "name": "Miami Site 010",
+        "structure_type": "Pole",
+        "directionality": "Sector",
+        "azimuth_deg": 210,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.124163,
+          25.725974
+        ]
+      },
+      "properties": {
+        "id": "mia-site-011",
+        "kind": "infrastructure",
+        "name": "Miami Site 011",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 150,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.241443,
+          25.911644
+        ]
+      },
+      "properties": {
+        "id": "mia-site-012",
+        "kind": "infrastructure",
+        "name": "Miami Site 012",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.258574,
+          25.777039
+        ]
+      },
+      "properties": {
+        "id": "mia-site-013",
+        "kind": "infrastructure",
+        "name": "Miami Site 013",
+        "structure_type": "Pole",
+        "directionality": "Sector",
+        "azimuth_deg": 210,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.131617,
+          25.804302
+        ]
+      },
+      "properties": {
+        "id": "mia-site-014",
+        "kind": "infrastructure",
+        "name": "Miami Site 014",
+        "structure_type": "Tower",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.264982,
+          25.827148
+        ]
+      },
+      "properties": {
+        "id": "mia-site-015",
+        "kind": "infrastructure",
+        "name": "Miami Site 015",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 330,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.257129,
+          25.906943
+        ]
+      },
+      "properties": {
+        "id": "mia-site-016",
+        "kind": "infrastructure",
+        "name": "Miami Site 016",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 270,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.31762,
+          25.869011
+        ]
+      },
+      "properties": {
+        "id": "mia-site-017",
+        "kind": "infrastructure",
+        "name": "Miami Site 017",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.247901,
+          25.891713
+        ]
+      },
+      "properties": {
+        "id": "mia-site-018",
+        "kind": "infrastructure",
+        "name": "Miami Site 018",
+        "structure_type": "Tower",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.214618,
+          25.894344
+        ]
+      },
+      "properties": {
+        "id": "mia-site-019",
+        "kind": "infrastructure",
+        "name": "Miami Site 019",
+        "structure_type": "Pole",
+        "directionality": "Sector",
+        "azimuth_deg": 120,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.122842,
+          25.850199
+        ]
+      },
+      "properties": {
+        "id": "mia-site-020",
+        "kind": "infrastructure",
+        "name": "Miami Site 020",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 60,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.298227,
+          25.844874
+        ]
+      },
+      "properties": {
+        "id": "mia-site-021",
+        "kind": "infrastructure",
+        "name": "Miami Site 021",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.274823,
+          25.700901
+        ]
+      },
+      "properties": {
+        "id": "mia-site-022",
+        "kind": "infrastructure",
+        "name": "Miami Site 022",
+        "structure_type": "Pole",
+        "directionality": "Sector",
+        "azimuth_deg": 150,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.263092,
+          25.727608
+        ]
+      },
+      "properties": {
+        "id": "mia-site-023",
+        "kind": "infrastructure",
+        "name": "Miami Site 023",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.2476,
+          25.787775
+        ]
+      },
+      "properties": {
+        "id": "mia-site-024",
+        "kind": "infrastructure",
+        "name": "Miami Site 024",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.316928,
+          25.714816
+        ]
+      },
+      "properties": {
+        "id": "mia-site-025",
+        "kind": "infrastructure",
+        "name": "Miami Site 025",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.258589,
+          25.711567
+        ]
+      },
+      "properties": {
+        "id": "mia-site-026",
+        "kind": "infrastructure",
+        "name": "Miami Site 026",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.308692,
+          25.779994
+        ]
+      },
+      "properties": {
+        "id": "mia-site-027",
+        "kind": "infrastructure",
+        "name": "Miami Site 027",
+        "structure_type": "Tower",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.250992,
+          25.83957
+        ]
+      },
+      "properties": {
+        "id": "mia-site-028",
+        "kind": "infrastructure",
+        "name": "Miami Site 028",
+        "structure_type": "Pole",
+        "directionality": "Sector",
+        "azimuth_deg": 150,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.305776,
+          25.807375
+        ]
+      },
+      "properties": {
+        "id": "mia-site-029",
+        "kind": "infrastructure",
+        "name": "Miami Site 029",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 210,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.299735,
+          25.864928
+        ]
+      },
+      "properties": {
+        "id": "mia-site-030",
+        "kind": "infrastructure",
+        "name": "Miami Site 030",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 330,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.32515,
+          25.909217
+        ]
+      },
+      "properties": {
+        "id": "mia-site-031",
+        "kind": "infrastructure",
+        "name": "Miami Site 031",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 330,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.17079,
+          25.76558
+        ]
+      },
+      "properties": {
+        "id": "mia-site-032",
+        "kind": "infrastructure",
+        "name": "Miami Site 032",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.252993,
+          25.736749
+        ]
+      },
+      "properties": {
+        "id": "mia-site-033",
+        "kind": "infrastructure",
+        "name": "Miami Site 033",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.26077,
+          25.749069
+        ]
+      },
+      "properties": {
+        "id": "mia-site-034",
+        "kind": "infrastructure",
+        "name": "Miami Site 034",
+        "structure_type": "Tower",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.161302,
+          25.743982
+        ]
+      },
+      "properties": {
+        "id": "mia-site-035",
+        "kind": "infrastructure",
+        "name": "Miami Site 035",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 330,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.164076,
+          25.803893
+        ]
+      },
+      "properties": {
+        "id": "mia-site-036",
+        "kind": "infrastructure",
+        "name": "Miami Site 036",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.236082,
+          25.906145
+        ]
+      },
+      "properties": {
+        "id": "mia-site-037",
+        "kind": "infrastructure",
+        "name": "Miami Site 037",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 30,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.282362,
+          25.743275
+        ]
+      },
+      "properties": {
+        "id": "mia-site-038",
+        "kind": "infrastructure",
+        "name": "Miami Site 038",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.153509,
+          25.805484
+        ]
+      },
+      "properties": {
+        "id": "mia-site-039",
+        "kind": "infrastructure",
+        "name": "Miami Site 039",
+        "structure_type": "Pole",
+        "directionality": "Sector",
+        "azimuth_deg": 30,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.138947,
+          25.872107
+        ]
+      },
+      "properties": {
+        "id": "mia-site-040",
+        "kind": "infrastructure",
+        "name": "Miami Site 040",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.164282,
+          25.773154
+        ]
+      },
+      "properties": {
+        "id": "mia-site-041",
+        "kind": "infrastructure",
+        "name": "Miami Site 041",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 180,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.177792,
+          25.737401
+        ]
+      },
+      "properties": {
+        "id": "mia-site-042",
+        "kind": "infrastructure",
+        "name": "Miami Site 042",
+        "structure_type": "Tower",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.139981,
+          25.87743
+        ]
+      },
+      "properties": {
+        "id": "mia-site-043",
+        "kind": "infrastructure",
+        "name": "Miami Site 043",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.191974,
+          25.77709
+        ]
+      },
+      "properties": {
+        "id": "mia-site-044",
+        "kind": "infrastructure",
+        "name": "Miami Site 044",
+        "structure_type": "Tower",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.193568,
+          25.815848
+        ]
+      },
+      "properties": {
+        "id": "mia-site-045",
+        "kind": "infrastructure",
+        "name": "Miami Site 045",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.324121,
+          25.746812
+        ]
+      },
+      "properties": {
+        "id": "mia-site-046",
+        "kind": "infrastructure",
+        "name": "Miami Site 046",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.215686,
+          25.883523
+        ]
+      },
+      "properties": {
+        "id": "mia-site-047",
+        "kind": "infrastructure",
+        "name": "Miami Site 047",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.19088,
+          25.87931
+        ]
+      },
+      "properties": {
+        "id": "mia-site-048",
+        "kind": "infrastructure",
+        "name": "Miami Site 048",
+        "structure_type": "Pole",
+        "directionality": "Sector",
+        "azimuth_deg": 60,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.220064,
+          25.704115
+        ]
+      },
+      "properties": {
+        "id": "mia-site-049",
+        "kind": "infrastructure",
+        "name": "Miami Site 049",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 270,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.293807,
+          25.804168
+        ]
+      },
+      "properties": {
+        "id": "mia-site-050",
+        "kind": "infrastructure",
+        "name": "Miami Site 050",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.18671,
+          25.81676
+        ]
+      },
+      "properties": {
+        "id": "mia-site-051",
+        "kind": "infrastructure",
+        "name": "Miami Site 051",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 240,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.289826,
+          25.709284
+        ]
+      },
+      "properties": {
+        "id": "mia-site-052",
+        "kind": "infrastructure",
+        "name": "Miami Site 052",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.324148,
+          25.896683
+        ]
+      },
+      "properties": {
+        "id": "mia-site-053",
+        "kind": "infrastructure",
+        "name": "Miami Site 053",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.125594,
+          25.83335
+        ]
+      },
+      "properties": {
+        "id": "mia-site-054",
+        "kind": "infrastructure",
+        "name": "Miami Site 054",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.223287,
+          25.87762
+        ]
+      },
+      "properties": {
+        "id": "mia-site-055",
+        "kind": "infrastructure",
+        "name": "Miami Site 055",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.136215,
+          25.896406
+        ]
+      },
+      "properties": {
+        "id": "mia-site-056",
+        "kind": "infrastructure",
+        "name": "Miami Site 056",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.304459,
+          25.797266
+        ]
+      },
+      "properties": {
+        "id": "mia-site-057",
+        "kind": "infrastructure",
+        "name": "Miami Site 057",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.314645,
+          25.847284
+        ]
+      },
+      "properties": {
+        "id": "mia-site-058",
+        "kind": "infrastructure",
+        "name": "Miami Site 058",
+        "structure_type": "Tower",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.191346,
+          25.731455
+        ]
+      },
+      "properties": {
+        "id": "mia-site-059",
+        "kind": "infrastructure",
+        "name": "Miami Site 059",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.129974,
+          25.787617
+        ]
+      },
+      "properties": {
+        "id": "mia-site-060",
+        "kind": "infrastructure",
+        "name": "Miami Site 060",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 300,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.181672,
+          25.918696
+        ]
+      },
+      "properties": {
+        "id": "mia-site-061",
+        "kind": "infrastructure",
+        "name": "Miami Site 061",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 180,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.26311,
+          25.858873
+        ]
+      },
+      "properties": {
+        "id": "mia-site-062",
+        "kind": "infrastructure",
+        "name": "Miami Site 062",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.237504,
+          25.703978
+        ]
+      },
+      "properties": {
+        "id": "mia-site-063",
+        "kind": "infrastructure",
+        "name": "Miami Site 063",
+        "structure_type": "Pole",
+        "directionality": "Sector",
+        "azimuth_deg": 270,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.128237,
+          25.724827
+        ]
+      },
+      "properties": {
+        "id": "mia-site-064",
+        "kind": "infrastructure",
+        "name": "Miami Site 064",
+        "structure_type": "Tower",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.272897,
+          25.899298
+        ]
+      },
+      "properties": {
+        "id": "mia-site-065",
+        "kind": "infrastructure",
+        "name": "Miami Site 065",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.151587,
+          25.848714
+        ]
+      },
+      "properties": {
+        "id": "mia-site-066",
+        "kind": "infrastructure",
+        "name": "Miami Site 066",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 60,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.210175,
+          25.854092
+        ]
+      },
+      "properties": {
+        "id": "mia-site-067",
+        "kind": "infrastructure",
+        "name": "Miami Site 067",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.291498,
+          25.896963
+        ]
+      },
+      "properties": {
+        "id": "mia-site-068",
+        "kind": "infrastructure",
+        "name": "Miami Site 068",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 300,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.312414,
+          25.88837
+        ]
+      },
+      "properties": {
+        "id": "mia-site-069",
+        "kind": "infrastructure",
+        "name": "Miami Site 069",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.327575,
+          25.918747
+        ]
+      },
+      "properties": {
+        "id": "mia-site-070",
+        "kind": "infrastructure",
+        "name": "Miami Site 070",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 270,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.219348,
+          25.752456
+        ]
+      },
+      "properties": {
+        "id": "mia-site-071",
+        "kind": "infrastructure",
+        "name": "Miami Site 071",
+        "structure_type": "Tower",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.291959,
+          25.905094
+        ]
+      },
+      "properties": {
+        "id": "mia-site-072",
+        "kind": "infrastructure",
+        "name": "Miami Site 072",
+        "structure_type": "Pole",
+        "directionality": "Sector",
+        "azimuth_deg": 90,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.224981,
+          25.739138
+        ]
+      },
+      "properties": {
+        "id": "mia-site-073",
+        "kind": "infrastructure",
+        "name": "Miami Site 073",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 120,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.326129,
+          25.811244
+        ]
+      },
+      "properties": {
+        "id": "mia-site-074",
+        "kind": "infrastructure",
+        "name": "Miami Site 074",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.133725,
+          25.723382
+        ]
+      },
+      "properties": {
+        "id": "mia-site-075",
+        "kind": "infrastructure",
+        "name": "Miami Site 075",
+        "structure_type": "Pole",
+        "directionality": "Sector",
+        "azimuth_deg": 210,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.126234,
+          25.767712
+        ]
+      },
+      "properties": {
+        "id": "mia-site-076",
+        "kind": "infrastructure",
+        "name": "Miami Site 076",
+        "structure_type": "Tower",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.15522,
+          25.85548
+        ]
+      },
+      "properties": {
+        "id": "mia-site-077",
+        "kind": "infrastructure",
+        "name": "Miami Site 077",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.154232,
+          25.703136
+        ]
+      },
+      "properties": {
+        "id": "mia-site-078",
+        "kind": "infrastructure",
+        "name": "Miami Site 078",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 60,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.190302,
+          25.783794
+        ]
+      },
+      "properties": {
+        "id": "mia-site-079",
+        "kind": "infrastructure",
+        "name": "Miami Site 079",
+        "structure_type": "Pole",
+        "directionality": "Sector",
+        "azimuth_deg": 90,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.3205,
+          25.740777
+        ]
+      },
+      "properties": {
+        "id": "mia-site-080",
+        "kind": "infrastructure",
+        "name": "Miami Site 080",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 0,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.128025,
+          25.913977
+        ]
+      },
+      "properties": {
+        "id": "mia-site-081",
+        "kind": "infrastructure",
+        "name": "Miami Site 081",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 0,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.255117,
+          25.700235
+        ]
+      },
+      "properties": {
+        "id": "mia-site-082",
+        "kind": "infrastructure",
+        "name": "Miami Site 082",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 210,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.192236,
+          25.754599
+        ]
+      },
+      "properties": {
+        "id": "mia-site-083",
+        "kind": "infrastructure",
+        "name": "Miami Site 083",
+        "structure_type": "Tower",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.299788,
+          25.829096
+        ]
+      },
+      "properties": {
+        "id": "mia-site-084",
+        "kind": "infrastructure",
+        "name": "Miami Site 084",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 120,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.28111,
+          25.828828
+        ]
+      },
+      "properties": {
+        "id": "mia-site-085",
+        "kind": "infrastructure",
+        "name": "Miami Site 085",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.248202,
+          25.77175
+        ]
+      },
+      "properties": {
+        "id": "mia-site-086",
+        "kind": "infrastructure",
+        "name": "Miami Site 086",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 120,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.194924,
+          25.709633
+        ]
+      },
+      "properties": {
+        "id": "mia-site-087",
+        "kind": "infrastructure",
+        "name": "Miami Site 087",
+        "structure_type": "Pole",
+        "directionality": "Sector",
+        "azimuth_deg": 330,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.138924,
+          25.865631
+        ]
+      },
+      "properties": {
+        "id": "mia-site-088",
+        "kind": "infrastructure",
+        "name": "Miami Site 088",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.186592,
+          25.852532
+        ]
+      },
+      "properties": {
+        "id": "mia-site-089",
+        "kind": "infrastructure",
+        "name": "Miami Site 089",
+        "structure_type": "Tower",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.30205,
+          25.779356
+        ]
+      },
+      "properties": {
+        "id": "mia-site-090",
+        "kind": "infrastructure",
+        "name": "Miami Site 090",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.319336,
+          25.704145
+        ]
+      },
+      "properties": {
+        "id": "mia-site-091",
+        "kind": "infrastructure",
+        "name": "Miami Site 091",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.234041,
+          25.715425
+        ]
+      },
+      "properties": {
+        "id": "mia-site-092",
+        "kind": "infrastructure",
+        "name": "Miami Site 092",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.173397,
+          25.804249
+        ]
+      },
+      "properties": {
+        "id": "mia-site-093",
+        "kind": "infrastructure",
+        "name": "Miami Site 093",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.171147,
+          25.750762
+        ]
+      },
+      "properties": {
+        "id": "mia-site-094",
+        "kind": "infrastructure",
+        "name": "Miami Site 094",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 180,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.138802,
+          25.76321
+        ]
+      },
+      "properties": {
+        "id": "mia-site-095",
+        "kind": "infrastructure",
+        "name": "Miami Site 095",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.288359,
+          25.831935
+        ]
+      },
+      "properties": {
+        "id": "mia-site-096",
+        "kind": "infrastructure",
+        "name": "Miami Site 096",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 300,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.266072,
+          25.824908
+        ]
+      },
+      "properties": {
+        "id": "mia-site-097",
+        "kind": "infrastructure",
+        "name": "Miami Site 097",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.273558,
+          25.84784
+        ]
+      },
+      "properties": {
+        "id": "mia-site-098",
+        "kind": "infrastructure",
+        "name": "Miami Site 098",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.181137,
+          25.76282
+        ]
+      },
+      "properties": {
+        "id": "mia-site-099",
+        "kind": "infrastructure",
+        "name": "Miami Site 099",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 30,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.264548,
+          25.718888
+        ]
+      },
+      "properties": {
+        "id": "mia-site-100",
+        "kind": "infrastructure",
+        "name": "Miami Site 100",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 120,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.157821,
+          25.912984
+        ]
+      },
+      "properties": {
+        "id": "mia-site-101",
+        "kind": "infrastructure",
+        "name": "Miami Site 101",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 180,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.314331,
+          25.719867
+        ]
+      },
+      "properties": {
+        "id": "mia-site-102",
+        "kind": "infrastructure",
+        "name": "Miami Site 102",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 60,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.223164,
+          25.89511
+        ]
+      },
+      "properties": {
+        "id": "mia-site-103",
+        "kind": "infrastructure",
+        "name": "Miami Site 103",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 210,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.324785,
+          25.70079
+        ]
+      },
+      "properties": {
+        "id": "mia-site-104",
+        "kind": "infrastructure",
+        "name": "Miami Site 104",
+        "structure_type": "Pole",
+        "directionality": "Sector",
+        "azimuth_deg": 210,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.177292,
+          25.79156
+        ]
+      },
+      "properties": {
+        "id": "mia-site-105",
+        "kind": "infrastructure",
+        "name": "Miami Site 105",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 30,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.261845,
+          25.77442
+        ]
+      },
+      "properties": {
+        "id": "mia-site-106",
+        "kind": "infrastructure",
+        "name": "Miami Site 106",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 90,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.140671,
+          25.763763
+        ]
+      },
+      "properties": {
+        "id": "mia-site-107",
+        "kind": "infrastructure",
+        "name": "Miami Site 107",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 180,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 3500,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.313956,
+          25.903591
+        ]
+      },
+      "properties": {
+        "id": "mia-site-108",
+        "kind": "infrastructure",
+        "name": "Miami Site 108",
+        "structure_type": "Tower",
+        "directionality": "Sector",
+        "azimuth_deg": 120,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.154718,
+          25.762837
+        ]
+      },
+      "properties": {
+        "id": "mia-site-109",
+        "kind": "infrastructure",
+        "name": "Miami Site 109",
+        "structure_type": "Tower",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.222698,
+          25.741767
+        ]
+      },
+      "properties": {
+        "id": "mia-site-110",
+        "kind": "infrastructure",
+        "name": "Miami Site 110",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 0,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.138181,
+          25.906954
+        ]
+      },
+      "properties": {
+        "id": "mia-site-111",
+        "kind": "infrastructure",
+        "name": "Miami Site 111",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.133972,
+          25.790395
+        ]
+      },
+      "properties": {
+        "id": "mia-site-112",
+        "kind": "infrastructure",
+        "name": "Miami Site 112",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.319715,
+          25.903891
+        ]
+      },
+      "properties": {
+        "id": "mia-site-113",
+        "kind": "infrastructure",
+        "name": "Miami Site 113",
+        "structure_type": "Tower",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.257831,
+          25.76551
+        ]
+      },
+      "properties": {
+        "id": "mia-site-114",
+        "kind": "infrastructure",
+        "name": "Miami Site 114",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 300,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.228532,
+          25.847153
+        ]
+      },
+      "properties": {
+        "id": "mia-site-115",
+        "kind": "infrastructure",
+        "name": "Miami Site 115",
+        "structure_type": "Tower",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 1800,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.314214,
+          25.810133
+        ]
+      },
+      "properties": {
+        "id": "mia-site-116",
+        "kind": "infrastructure",
+        "name": "Miami Site 116",
+        "structure_type": "Pole",
+        "directionality": "Sector",
+        "azimuth_deg": 90,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.12074,
+          25.798991
+        ]
+      },
+      "properties": {
+        "id": "mia-site-117",
+        "kind": "infrastructure",
+        "name": "Miami Site 117",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 1900,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.31095,
+          25.77523
+        ]
+      },
+      "properties": {
+        "id": "mia-site-118",
+        "kind": "infrastructure",
+        "name": "Miami Site 118",
+        "structure_type": "Rooftop",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.275745,
+          25.825316
+        ]
+      },
+      "properties": {
+        "id": "mia-site-119",
+        "kind": "infrastructure",
+        "name": "Miami Site 119",
+        "structure_type": "Pole",
+        "directionality": "Omni",
+        "azimuth_deg": null,
+        "rf_min_mhz": 850,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.243084,
+          25.815317
+        ]
+      },
+      "properties": {
+        "id": "mia-site-120",
+        "kind": "infrastructure",
+        "name": "Miami Site 120",
+        "structure_type": "Rooftop",
+        "directionality": "Sector",
+        "azimuth_deg": 150,
+        "rf_min_mhz": 700,
+        "rf_max_mhz": 2600,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.271722,
+          25.912891
+        ]
+      },
+      "properties": {
+        "id": "mia-est-001",
+        "kind": "estimate",
+        "name": "Estimated Emitter 001",
+        "freq_band": "900 MHz",
+        "confidence_major_m": 635,
+        "confidence_minor_m": 330,
+        "confidence_score": 0.73,
+        "sample_count": 33,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.151787,
+          25.720372
+        ]
+      },
+      "properties": {
+        "id": "mia-est-002",
+        "kind": "estimate",
+        "name": "Estimated Emitter 002",
+        "freq_band": "900 MHz",
+        "confidence_major_m": 513,
+        "confidence_minor_m": 264,
+        "confidence_score": 0.73,
+        "sample_count": 19,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.129672,
+          25.88671
+        ]
+      },
+      "properties": {
+        "id": "mia-est-003",
+        "kind": "estimate",
+        "name": "Estimated Emitter 003",
+        "freq_band": "900 MHz",
+        "confidence_major_m": 250,
+        "confidence_minor_m": 76,
+        "confidence_score": 0.64,
+        "sample_count": 30,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.141904,
+          25.804119
+        ]
+      },
+      "properties": {
+        "id": "mia-est-004",
+        "kind": "estimate",
+        "name": "Estimated Emitter 004",
+        "freq_band": "2.6 GHz",
+        "confidence_major_m": 621,
+        "confidence_minor_m": 60,
+        "confidence_score": 0.48,
+        "sample_count": 35,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.135366,
+          25.88163
+        ]
+      },
+      "properties": {
+        "id": "mia-est-005",
+        "kind": "estimate",
+        "name": "Estimated Emitter 005",
+        "freq_band": "1.8 GHz",
+        "confidence_major_m": 579,
+        "confidence_minor_m": 187,
+        "confidence_score": 0.79,
+        "sample_count": 13,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.297581,
+          25.81492
+        ]
+      },
+      "properties": {
+        "id": "mia-est-006",
+        "kind": "estimate",
+        "name": "Estimated Emitter 006",
+        "freq_band": "2.6 GHz",
+        "confidence_major_m": 231,
+        "confidence_minor_m": 294,
+        "confidence_score": 0.49,
+        "sample_count": 30,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.321695,
+          25.872106
+        ]
+      },
+      "properties": {
+        "id": "mia-est-007",
+        "kind": "estimate",
+        "name": "Estimated Emitter 007",
+        "freq_band": "900 MHz",
+        "confidence_major_m": 703,
+        "confidence_minor_m": 79,
+        "confidence_score": 0.73,
+        "sample_count": 15,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.127889,
+          25.837824
+        ]
+      },
+      "properties": {
+        "id": "mia-est-008",
+        "kind": "estimate",
+        "name": "Estimated Emitter 008",
+        "freq_band": "2.6 GHz",
+        "confidence_major_m": 771,
+        "confidence_minor_m": 283,
+        "confidence_score": 0.76,
+        "sample_count": 9,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.309117,
+          25.766077
+        ]
+      },
+      "properties": {
+        "id": "mia-est-009",
+        "kind": "estimate",
+        "name": "Estimated Emitter 009",
+        "freq_band": "2.6 GHz",
+        "confidence_major_m": 316,
+        "confidence_minor_m": 258,
+        "confidence_score": 0.56,
+        "sample_count": 31,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.203777,
+          25.702302
+        ]
+      },
+      "properties": {
+        "id": "mia-est-010",
+        "kind": "estimate",
+        "name": "Estimated Emitter 010",
+        "freq_band": "1.8 GHz",
+        "confidence_major_m": 591,
+        "confidence_minor_m": 202,
+        "confidence_score": 0.87,
+        "sample_count": 26,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.153724,
+          25.753319
+        ]
+      },
+      "properties": {
+        "id": "mia-est-011",
+        "kind": "estimate",
+        "name": "Estimated Emitter 011",
+        "freq_band": "2.6 GHz",
+        "confidence_major_m": 360,
+        "confidence_minor_m": 340,
+        "confidence_score": 0.56,
+        "sample_count": 19,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.182023,
+          25.767628
+        ]
+      },
+      "properties": {
+        "id": "mia-est-012",
+        "kind": "estimate",
+        "name": "Estimated Emitter 012",
+        "freq_band": "900 MHz",
+        "confidence_major_m": 318,
+        "confidence_minor_m": 315,
+        "confidence_score": 0.84,
+        "sample_count": 26,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.241797,
+          25.756596
+        ]
+      },
+      "properties": {
+        "id": "mia-est-013",
+        "kind": "estimate",
+        "name": "Estimated Emitter 013",
+        "freq_band": "2.6 GHz",
+        "confidence_major_m": 554,
+        "confidence_minor_m": 249,
+        "confidence_score": 0.55,
+        "sample_count": 7,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.183877,
+          25.858033
+        ]
+      },
+      "properties": {
+        "id": "mia-est-014",
+        "kind": "estimate",
+        "name": "Estimated Emitter 014",
+        "freq_band": "1.8 GHz",
+        "confidence_major_m": 525,
+        "confidence_minor_m": 161,
+        "confidence_score": 0.45,
+        "sample_count": 15,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.174783,
+          25.811073
+        ]
+      },
+      "properties": {
+        "id": "mia-est-015",
+        "kind": "estimate",
+        "name": "Estimated Emitter 015",
+        "freq_band": "900 MHz",
+        "confidence_major_m": 627,
+        "confidence_minor_m": 162,
+        "confidence_score": 0.59,
+        "sample_count": 32,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.289274,
+          25.802325
+        ]
+      },
+      "properties": {
+        "id": "mia-est-016",
+        "kind": "estimate",
+        "name": "Estimated Emitter 016",
+        "freq_band": "1.8 GHz",
+        "confidence_major_m": 422,
+        "confidence_minor_m": 115,
+        "confidence_score": 0.87,
+        "sample_count": 21,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.201879,
+          25.897225
+        ]
+      },
+      "properties": {
+        "id": "mia-est-017",
+        "kind": "estimate",
+        "name": "Estimated Emitter 017",
+        "freq_band": "1.8 GHz",
+        "confidence_major_m": 547,
+        "confidence_minor_m": 88,
+        "confidence_score": 0.87,
+        "sample_count": 10,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.136396,
+          25.711959
+        ]
+      },
+      "properties": {
+        "id": "mia-est-018",
+        "kind": "estimate",
+        "name": "Estimated Emitter 018",
+        "freq_band": "900 MHz",
+        "confidence_major_m": 730,
+        "confidence_minor_m": 132,
+        "confidence_score": 0.63,
+        "sample_count": 28,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.317372,
+          25.786531
+        ]
+      },
+      "properties": {
+        "id": "mia-est-019",
+        "kind": "estimate",
+        "name": "Estimated Emitter 019",
+        "freq_band": "2.6 GHz",
+        "confidence_major_m": 441,
+        "confidence_minor_m": 117,
+        "confidence_score": 0.89,
+        "sample_count": 35,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.295217,
+          25.74195
+        ]
+      },
+      "properties": {
+        "id": "mia-est-020",
+        "kind": "estimate",
+        "name": "Estimated Emitter 020",
+        "freq_band": "2.6 GHz",
+        "confidence_major_m": 657,
+        "confidence_minor_m": 299,
+        "confidence_score": 0.46,
+        "sample_count": 27,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.177671,
+          25.884608
+        ]
+      },
+      "properties": {
+        "id": "mia-est-021",
+        "kind": "estimate",
+        "name": "Estimated Emitter 021",
+        "freq_band": "1.8 GHz",
+        "confidence_major_m": 573,
+        "confidence_minor_m": 146,
+        "confidence_score": 0.5,
+        "sample_count": 8,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.271241,
+          25.777323
+        ]
+      },
+      "properties": {
+        "id": "mia-est-022",
+        "kind": "estimate",
+        "name": "Estimated Emitter 022",
+        "freq_band": "900 MHz",
+        "confidence_major_m": 694,
+        "confidence_minor_m": 166,
+        "confidence_score": 0.62,
+        "sample_count": 30,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.15747,
+          25.880842
+        ]
+      },
+      "properties": {
+        "id": "mia-est-023",
+        "kind": "estimate",
+        "name": "Estimated Emitter 023",
+        "freq_band": "1.8 GHz",
+        "confidence_major_m": 209,
+        "confidence_minor_m": 85,
+        "confidence_score": 0.76,
+        "sample_count": 12,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.25173,
+          25.902291
+        ]
+      },
+      "properties": {
+        "id": "mia-est-024",
+        "kind": "estimate",
+        "name": "Estimated Emitter 024",
+        "freq_band": "900 MHz",
+        "confidence_major_m": 451,
+        "confidence_minor_m": 246,
+        "confidence_score": 0.77,
+        "sample_count": 21,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.323641,
+          25.790376
+        ]
+      },
+      "properties": {
+        "id": "mia-est-025",
+        "kind": "estimate",
+        "name": "Estimated Emitter 025",
+        "freq_band": "2.6 GHz",
+        "confidence_major_m": 534,
+        "confidence_minor_m": 80,
+        "confidence_score": 0.62,
+        "sample_count": 20,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.316858,
+          25.902417
+        ]
+      },
+      "properties": {
+        "id": "mia-est-026",
+        "kind": "estimate",
+        "name": "Estimated Emitter 026",
+        "freq_band": "1.8 GHz",
+        "confidence_major_m": 319,
+        "confidence_minor_m": 92,
+        "confidence_score": 0.85,
+        "sample_count": 16,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.253775,
+          25.773694
+        ]
+      },
+      "properties": {
+        "id": "mia-est-027",
+        "kind": "estimate",
+        "name": "Estimated Emitter 027",
+        "freq_band": "2.6 GHz",
+        "confidence_major_m": 164,
+        "confidence_minor_m": 194,
+        "confidence_score": 0.78,
+        "sample_count": 28,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.263538,
+          25.760639
+        ]
+      },
+      "properties": {
+        "id": "mia-est-028",
+        "kind": "estimate",
+        "name": "Estimated Emitter 028",
+        "freq_band": "900 MHz",
+        "confidence_major_m": 729,
+        "confidence_minor_m": 93,
+        "confidence_score": 0.46,
+        "sample_count": 13,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.307475,
+          25.857426
+        ]
+      },
+      "properties": {
+        "id": "mia-est-029",
+        "kind": "estimate",
+        "name": "Estimated Emitter 029",
+        "freq_band": "1.8 GHz",
+        "confidence_major_m": 515,
+        "confidence_minor_m": 188,
+        "confidence_score": 0.85,
+        "sample_count": 32,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.22637,
+          25.904182
+        ]
+      },
+      "properties": {
+        "id": "mia-est-030",
+        "kind": "estimate",
+        "name": "Estimated Emitter 030",
+        "freq_band": "900 MHz",
+        "confidence_major_m": 128,
+        "confidence_minor_m": 215,
+        "confidence_score": 0.81,
+        "sample_count": 30,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.298224,
+          25.751951
+        ]
+      },
+      "properties": {
+        "id": "mia-est-031",
+        "kind": "estimate",
+        "name": "Estimated Emitter 031",
+        "freq_band": "1.8 GHz",
+        "confidence_major_m": 591,
+        "confidence_minor_m": 245,
+        "confidence_score": 0.79,
+        "sample_count": 25,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.313407,
+          25.743409
+        ]
+      },
+      "properties": {
+        "id": "mia-est-032",
+        "kind": "estimate",
+        "name": "Estimated Emitter 032",
+        "freq_band": "900 MHz",
+        "confidence_major_m": 373,
+        "confidence_minor_m": 268,
+        "confidence_score": 0.48,
+        "sample_count": 7,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.228845,
+          25.819816
+        ]
+      },
+      "properties": {
+        "id": "mia-est-033",
+        "kind": "estimate",
+        "name": "Estimated Emitter 033",
+        "freq_band": "900 MHz",
+        "confidence_major_m": 556,
+        "confidence_minor_m": 113,
+        "confidence_score": 0.88,
+        "sample_count": 14,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.198834,
+          25.745835
+        ]
+      },
+      "properties": {
+        "id": "mia-est-034",
+        "kind": "estimate",
+        "name": "Estimated Emitter 034",
+        "freq_band": "1.8 GHz",
+        "confidence_major_m": 630,
+        "confidence_minor_m": 288,
+        "confidence_score": 0.53,
+        "sample_count": 10,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.242463,
+          25.836468
+        ]
+      },
+      "properties": {
+        "id": "mia-est-035",
+        "kind": "estimate",
+        "name": "Estimated Emitter 035",
+        "freq_band": "2.6 GHz",
+        "confidence_major_m": 360,
+        "confidence_minor_m": 335,
+        "confidence_score": 0.82,
+        "sample_count": 27,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.170491,
+          25.871545
+        ]
+      },
+      "properties": {
+        "id": "mia-est-036",
+        "kind": "estimate",
+        "name": "Estimated Emitter 036",
+        "freq_band": "1.8 GHz",
+        "confidence_major_m": 420,
+        "confidence_minor_m": 203,
+        "confidence_score": 0.7,
+        "sample_count": 17,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.276648,
+          25.757274
+        ]
+      },
+      "properties": {
+        "id": "mia-est-037",
+        "kind": "estimate",
+        "name": "Estimated Emitter 037",
+        "freq_band": "1.8 GHz",
+        "confidence_major_m": 373,
+        "confidence_minor_m": 155,
+        "confidence_score": 0.56,
+        "sample_count": 10,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.270916,
+          25.899665
+        ]
+      },
+      "properties": {
+        "id": "mia-est-038",
+        "kind": "estimate",
+        "name": "Estimated Emitter 038",
+        "freq_band": "900 MHz",
+        "confidence_major_m": 454,
+        "confidence_minor_m": 93,
+        "confidence_score": 0.62,
+        "sample_count": 13,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.223462,
+          25.750904
+        ]
+      },
+      "properties": {
+        "id": "mia-est-039",
+        "kind": "estimate",
+        "name": "Estimated Emitter 039",
+        "freq_band": "900 MHz",
+        "confidence_major_m": 789,
+        "confidence_minor_m": 297,
+        "confidence_score": 0.89,
+        "sample_count": 9,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -80.329057,
+          25.894222
+        ]
+      },
+      "properties": {
+        "id": "mia-est-040",
+        "kind": "estimate",
+        "name": "Estimated Emitter 040",
+        "freq_band": "900 MHz",
+        "confidence_major_m": 579,
+        "confidence_minor_m": 251,
+        "confidence_score": 0.47,
+        "sample_count": 15,
+        "timestamp": "2026-04-29T12:00:00Z"
+      }
+    }
+  ]
+}
