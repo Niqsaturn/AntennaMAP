@@ -25,5 +25,17 @@ pip install -r requirements.txt
 echo "[AntennaMAP] Running tests..."
 PYTHONPATH=. pytest -q
 
+if [[ "${RUN_BASELINE_TRAINING:-0}" == "1" ]]; then
+  echo "[AntennaMAP] Running initial baseline training..."
+  python -m curl >/dev/null 2>&1 || true
+  python - <<'PY2'
+from fastapi.testclient import TestClient
+from backend.main import app
+client = TestClient(app)
+client.post("/api/training/start", params={"method":"single_triangulation_baseline"})
+print("baseline training complete")
+PY2
+fi
+
 echo "[AntennaMAP] Starting app at http://${HOST}:${PORT}"
 exec uvicorn backend.main:app --host "$HOST" --port "$PORT" --reload

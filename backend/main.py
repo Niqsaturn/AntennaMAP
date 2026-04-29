@@ -1,70 +1,154 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib import error, request
+
 from fastapi import FastAPI, Query
 from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from backend.model_providers import discover_python_local_models
-from backend.pipeline.ingest import evaluate_retraining_triggers, ingest_telemetry, summarize_telemetry
-from backend.rf.geometry import build_propagation_features
-from backend.rf_propagation import generate_snapshot
+from backend.ingest.infrastructure import ingest_infrastructure
+from backend.ingest.storage import append_jsonl, read_jsonl
+from backend.ingest.telemetry import ingest_telemetry
+from backend.pipeline.ingest import evaluate_retraining_triggers, summarize_telemetry
+
+from backend.geometry.rf_overlays import build_overlay_geometries
+
+def load_telemetry_samples() -> list[dict]:
+    if not TELEMETRY_FILE.exists():
+        return []
+    return _load_json(TELEMETRY_FILE)
+
+def enrich_feature(feature: dict, telemetry: list[dict]) -> dict:
+    enriched = {**feature}
+    props = {**feature.get("properties", {})}
+    if feature.get("geometry", {}).get("type") == "Point":
+        props["beamwidth_deg"] = props.get("beamwidth_deg") or (360 if props.get("directionality") == "Omni" else 80)
+        props["ray_length_m"] = props.get("ray_length_m") or (750 if props.get("kind") == "estimate" else 1000)
+        props["wedge_radius_m"] = props.get("wedge_radius_m") or (900 if props.get("kind") == "estimate" else 1400)
+        props["overlay_geometries"] = build_overlay_geometries({"type":"Feature","geometry":feature.get("geometry"),"properties":props})
+    enriched["properties"] = props
+    return enriched
+
+from backend.training.trainer import train_single_triangulation_baseline
+from backend.training.triangulation_baseline import estimate_single_operator
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_FILE = ROOT / "public" / "data" / "antenna_data.geojson"
 TELEMETRY_FILE = ROOT / "public" / "data" / "telemetry_samples.json"
 INGEST_LOG_FILE = ROOT / "backend" / "pipeline" / "data" / "telemetry_ingested.jsonl"
+INFRA_INGEST_FILE = ROOT / "backend" / "pipeline" / "data" / "infrastructure_ingested.jsonl"
 RUN_METADATA_FILE = ROOT / "backend" / "pipeline" / "data" / "model_runs.jsonl"
-MODEL_STATE = {"provider": "python_local", "model": None}
+INGEST_ISSUES_FILE = ROOT / "backend" / "pipeline" / "data" / "ingest_issues.jsonl"
 
 app = FastAPI(title="AntennaMAP API", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+
+class LoopManager:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._running = False
+        self._thread: threading.Thread | None = None
+        self._config = {"interval_seconds": 60, "provider": "local", "model": "baseline-v1"}
+        self._last_run_started_at: str | None = None
+        self._last_run_completed_at: str | None = None
+        self._last_successful_run_at: str | None = None
+        self._last_run_duration_ms: float | None = None
+        self._provider_errors: list[dict] = []
+
+    def _record_error(self, provider: str, operation: str, exc: Exception) -> None:
+        self._provider_errors = [
+            *self._provider_errors[-24:],
+            {
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                "provider": provider,
+                "operation": operation,
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+            },
+        ]
+
+    def _run_once(self) -> None:
+        started = datetime.now(tz=timezone.utc)
+        cfg = self.config()
+        with self._lock:
+            self._last_run_started_at = started.isoformat()
+
+        try:
+            ingest_pipeline(model_version=cfg["model"])
+            with self._lock:
+                self._last_successful_run_at = datetime.now(tz=timezone.utc).isoformat()
+        except Exception as exc:
+            with self._lock:
+                self._record_error(cfg["provider"], "ingest_pipeline", exc)
+        finally:
+            done = datetime.now(tz=timezone.utc)
+            with self._lock:
+                self._last_run_completed_at = done.isoformat()
+                self._last_run_duration_ms = round((done - started).total_seconds() * 1000, 3)
+
+    def _loop(self) -> None:
+        while self.active():
+            self._run_once()
+            time.sleep(max(1, int(self.config()["interval_seconds"])))
+
+    def start(self) -> dict:
+        with self._lock:
+            if self._running:
+                return {"active": True}
+            self._running = True
+            self._thread = threading.Thread(target=self._loop, daemon=True)
+            self._thread.start()
+            return {"active": True}
+
+    def stop(self) -> dict:
+        with self._lock:
+            self._running = False
+            return {"active": False}
+
+    def active(self) -> bool:
+        with self._lock:
+            return self._running
+
+    def update_config(self, interval_seconds: int, provider: str, model: str) -> dict:
+        with self._lock:
+            self._config = {"interval_seconds": interval_seconds, "provider": provider, "model": model}
+            return self._config.copy()
+
+    def config(self) -> dict:
+        with self._lock:
+            return self._config.copy()
+
+    def status(self) -> dict:
+        with self._lock:
+            return {
+                "active": self._running,
+                "config": self._config.copy(),
+                "last_run": {
+                    "started_at": self._last_run_started_at,
+                    "completed_at": self._last_run_completed_at,
+                    "duration_ms": self._last_run_duration_ms,
+                    "last_successful_run_at": self._last_successful_run_at,
+                },
+                "provider_errors": self._provider_errors,
+            }
+
+
+loop_manager = LoopManager()
 
 
 def load_geojson() -> dict:
     return json.loads(DATA_FILE.read_text(encoding="utf-8"))
 
 
-def summarize_telemetry(samples: list[dict]) -> dict:
-    band_summary: dict[str, dict] = {}
-    for sample in samples:
-        band = sample.get("band", "unknown")
-        band_summary.setdefault(band, {"sample_count": 0, "snr": 0.0, "rssi": 0.0})
-        band_summary[band]["sample_count"] += 1
-        band_summary[band]["snr"] += sample.get("snr_db", 0.0)
-        band_summary[band]["rssi"] += sample.get("rssi_dbm", 0.0)
-    for _, v in band_summary.items():
-        n = v["sample_count"]
-        v["avg_snr_db"] = round(v.pop("snr") / n, 3)
-        v["avg_rssi_dbm"] = round(v.pop("rssi") / n, 3)
-    return {"band_summary": band_summary, "sample_count": len(samples)}
-
-
 def _load_json(path: Path) -> list[dict]:
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
-
-
-def _append_jsonl(path: Path, row: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(row, sort_keys=True))
-        f.write("\n")
-
-
-def _read_jsonl(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    rows = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line:
-            rows.append(json.loads(line))
-    return rows
 
 
 def load_telemetry_samples() -> list[dict]:
@@ -113,123 +197,129 @@ def health() -> dict:
     return {"status": "ok", "service": "antennamap"}
 
 
+@app.post("/api/loop/pause")
+def pause_loop() -> dict:
+    return loop_manager.stop()
+
+
+@app.post("/api/loop/resume")
+def resume_loop() -> dict:
+    return loop_manager.start()
+
+
+@app.post("/api/loop/config")
+def config_loop(interval_seconds: int = 60, provider: str = "local", model: str = "baseline-v1") -> dict:
+    return {"config": loop_manager.update_config(interval_seconds, provider, model)}
+
+
+@app.get("/api/loop/status")
+def loop_status() -> dict:
+    return loop_manager.status()
+
+
 @app.get("/api/features")
 def get_features(kind: str | None = Query(default=None, pattern="^(infrastructure|estimate)?$"), timestamp_lte: str | None = None) -> dict:
     data = load_geojson()
-    telemetry = load_telemetry_samples()
-    features = [enrich_feature(f, telemetry) for f in data["features"]]
+    features = data.get("features", [])
 
     if kind:
-        features = [f for f in features if f["properties"].get("kind") == kind]
+        features = [f for f in features if f.get("properties", {}).get("kind") == kind]
     if timestamp_lte:
         cutoff = datetime.fromisoformat(timestamp_lte.replace("Z", "+00:00"))
         features = [f for f in features if datetime.fromisoformat(f["properties"]["timestamp"].replace("Z", "+00:00")) <= cutoff]
     return {"type": "FeatureCollection", "features": features}
 
 
+@app.get("/api/features/count")
+def get_features_count(kind: str | None = Query(default=None, pattern="^(infrastructure|estimate)?$"), timestamp_lte: str | None = None) -> dict:
+    payload = get_features(kind=kind, timestamp_lte=timestamp_lte)
+    return {"count": len(payload["features"]), "kind": kind, "timestamp_lte": timestamp_lte}
+
+
 @app.post("/api/pipeline/ingest")
 def ingest_pipeline(model_version: str = "baseline-v1") -> dict:
-    raw_samples = _load_json(TELEMETRY_FILE)
-    ingestion_result = ingest_telemetry(raw_samples, INGEST_LOG_FILE)
-    summary = summarize_telemetry(ingestion_result.accepted)
+    raw_samples = load_telemetry_samples()
+    telemetry = ingest_telemetry(raw_samples, INGEST_LOG_FILE)
 
-    inference_outputs = [
-        {
-            "timestamp": s["timestamp"],
-            "predicted_bearing_deg": s["bearing_deg"],
-            "observed_bearing_deg": s["bearing_deg"],
-            "abs_error_deg": 0.0,
-        }
-        for s in ingestion_result.accepted
-    ]
-    drift_error = 0.0
+    raw_features = load_geojson().get("features", [])
+    infrastructure = ingest_infrastructure(raw_features, INFRA_INGEST_FILE)
 
-    timestamps = [datetime.fromisoformat(s["timestamp"].replace("Z", "+00:00")) for s in ingestion_result.accepted]
-    data_window = {
-        "start": min(timestamps).isoformat() if timestamps else None,
-        "end": max(timestamps).isoformat() if timestamps else None,
-    }
+    summary = summarize_telemetry(telemetry.accepted)
+    issues = telemetry.errors + telemetry.warnings + infrastructure.errors
+    append_jsonl(INGEST_ISSUES_FILE, [{"run_id": datetime.now(tz=timezone.utc).isoformat(), "issues": issues}])
 
+    runtime = _load_runtime_config()
+    selected_method = runtime.get("selected_method", "single_triangulation_baseline")
     run_id = datetime.now(tz=timezone.utc).isoformat()
     run_metadata = {
         "run_id": run_id,
         "model_version": model_version,
-        "data_window": data_window,
         "metrics": {
-            **ingestion_result.quality_metrics,
-            "drift_error": drift_error,
-            "post_hoc_mae_deg": 0.0,
-            "inference_outputs": inference_outputs,
+            "accepted_samples": len(telemetry.accepted),
+            "rejected_samples": len(telemetry.errors),
+            "warning_samples": len(telemetry.warnings),
+            "accepted_features": len(infrastructure.accepted),
+            "rejected_features": len(infrastructure.errors),
             "summary": summary,
+            "drift_error": 0.0,
         },
     }
-    _append_jsonl(RUN_METADATA_FILE, run_metadata)
-
-    historical = _read_jsonl(RUN_METADATA_FILE)
-    retraining = evaluate_retraining_triggers(historical)
+    append_jsonl(RUN_METADATA_FILE, [run_metadata])
+    historical = read_jsonl(RUN_METADATA_FILE)
 
     return {
-        "ingestion": ingestion_result.quality_metrics,
         "run_metadata": run_metadata,
-        "retraining": retraining,
+        "retraining": evaluate_retraining_triggers(historical),
+        "issues": {"errors": telemetry.errors + infrastructure.errors, "warnings": telemetry.warnings},
     }
+
+
+@app.get("/api/pipeline/ingest/issues")
+def ingest_issues(limit: int = 25) -> dict:
+    rows = read_jsonl(INGEST_ISSUES_FILE)
+    return {"count": len(rows), "rows": rows[-limit:]}
 
 
 @app.get("/api/model/metrics")
 def model_metrics() -> dict:
-    runs = _read_jsonl(RUN_METADATA_FILE)
+    runs = read_jsonl(RUN_METADATA_FILE)
     latest = runs[-1] if runs else None
     retraining = evaluate_retraining_triggers(runs)
     return {"latest": latest, "runs": runs, "retraining": retraining}
 
 
-@app.get("/api/models")
-def get_models() -> dict:
-    providers = discover_available_models()
-    provider_payload = [{"id": name, "models": models} for name, models in providers.items()]
-    active_model = MODEL_STATE["model"]
-    if not active_model:
-        for entry in provider_payload:
-            if entry["models"]:
-                MODEL_STATE["provider"] = entry["id"]
-                MODEL_STATE["model"] = entry["models"][0]
-                break
-    return {"providers": provider_payload, "active": MODEL_STATE}
 
 
-@app.post("/api/model/select")
-def select_model(selection: dict) -> dict:
-    provider = selection.get("provider")
-    model = selection.get("model")
-    if not provider or not model:
-        raise HTTPException(status_code=400, detail="provider and model are required")
-    providers = discover_available_models()
-    if provider not in providers:
-        raise HTTPException(status_code=400, detail=f"Unknown provider: {provider}")
-    if model not in providers[provider]:
-        raise HTTPException(status_code=400, detail=f"Model '{model}' is not available for provider '{provider}'")
-    MODEL_STATE["provider"] = provider
-    MODEL_STATE["model"] = model
-    return {"active": MODEL_STATE}
+@app.post("/api/training/start")
+def start_training(method: str = "single_triangulation_baseline") -> dict:
+    if method != "single_triangulation_baseline":
+        raise HTTPException(status_code=400, detail="unsupported training method")
+
+    _write_training_status({"status": "running", "method": method, "started_at": datetime.now(tz=timezone.utc).isoformat()})
+    samples = _load_json(TELEMETRY_FILE)
+    artifact = train_single_triangulation_baseline(samples, MODELS_DIR)
+    runtime = _load_runtime_config()
+    runtime["selected_method"] = method
+    runtime["selected_model"] = artifact["model_name"]
+    RUNTIME_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    RUNTIME_CONFIG_FILE.write_text(json.dumps(runtime, indent=2), encoding="utf-8")
+    _append_jsonl(RUN_METADATA_FILE, {"run_id": datetime.now(tz=timezone.utc).isoformat(), "training": artifact})
+    _write_training_status({"status": "completed", "method": method, "completed_at": datetime.now(tz=timezone.utc).isoformat(), "metrics": artifact["metrics"]})
+    return {"status": "started", "method": method, "artifact": artifact}
 
 
-@app.get("/api/propagation")
-def get_propagation(timestamp_lte: str | None = None, site_id: str | None = None, model: str = "fspl") -> dict:
-    features = get_features(timestamp_lte=timestamp_lte)["features"]
-    prop_features = []
-    for feature in features:
-        if feature.get("properties", {}).get("kind") != "infrastructure":
-            continue
-        if site_id and feature.get("properties", {}).get("id") != site_id:
-            continue
-        prop_features.extend(build_propagation_features(feature))
-    selected = next((f for f in features if f.get("properties", {}).get("id") == site_id), None) if site_id else None
-    snapshot = None
-    if selected:
-        lon, lat = selected["geometry"]["coordinates"]
-        props = selected["properties"]
-        snapshot = generate_snapshot(lat=lat, lon=lon, eirp_dbm=46.0, frequency_mhz=float(props.get("rf_max_mhz", 1900.0)), gain_dbi=3.0, height_m=30.0, beamwidth_deg=78.0, tilt_deg=5.0, orientation_deg=float(props.get("azimuth_deg") or 0.0), model=model, grid_radius_km=5.0, grid_resolution=41)
-    return {"type": "FeatureCollection", "features": prop_features, "snapshot": snapshot}
+@app.get("/api/training/status")
+def training_status() -> dict:
+    if not TRAINING_STATUS_FILE.exists():
+        return {"status": "idle"}
+    return json.loads(TRAINING_STATUS_FILE.read_text(encoding="utf-8"))
+
+
+@app.get("/api/training/history")
+def training_history() -> dict:
+    files = sorted(MODELS_DIR.glob("single_triangulation_baseline_*.json"))
+    history = [json.loads(f.read_text(encoding="utf-8")) for f in files]
+    return {"history": history, "count": len(history)}
 
 
 app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")

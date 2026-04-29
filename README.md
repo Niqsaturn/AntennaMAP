@@ -42,3 +42,19 @@ Open `http://localhost:8000`.
 - Time cutoff slider for timestamp filtering
 - Layer toggles for object categories
 - Informational-only dataset with no private payload content
+
+## Map tile network requirements and offline fallback
+
+The frontend map relies on external style/tile endpoints by default:
+- Primary style: `https://demotiles.maplibre.org/style.json`
+- Backup style: `https://tiles.openfreemap.org/styles/bright`
+- MapLibre assets loaded from `https://unpkg.com`
+
+For full rendering, clients must be able to reach those domains over HTTPS (TCP 443). If access is blocked, the app now shows an in-UI warning panel and switches to the configured backup style.
+
+### Local/offline fallback plan
+
+1. Vendor MapLibre JS/CSS into `frontend/vendor/` and update `index.html` script/link tags to local files.
+2. Host a local style JSON plus vector/raster tiles (for example from MBTiles via a local tile server such as `tileserver-gl` or equivalent).
+3. Update `frontend/main.js` `MAP_STYLES.primary` to the local style URL (example: `http://localhost:8080/styles/basic/style.json`) and keep an internal backup URL.
+4. Optionally pre-cache the style, sprites, glyphs, and tile responses with a service worker for disconnected operation.
