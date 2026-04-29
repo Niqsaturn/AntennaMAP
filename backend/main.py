@@ -64,7 +64,8 @@ def get_features(
     timestamp_lte: str | None = None,
 ) -> dict:
     data = load_geojson()
-    features = data["features"]
+    telemetry = load_telemetry_samples()
+    features = [enrich_feature(f, telemetry) for f in data["features"]]
 
     if kind:
         features = [f for f in features if f["properties"].get("kind") == kind]
