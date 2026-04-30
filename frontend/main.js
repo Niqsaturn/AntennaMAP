@@ -10,27 +10,57 @@ const timeRange = document.getElementById('timeRange');
 const timeLabel = document.getElementById('timeLabel');
 const modelSelect = document.getElementById('propModel');
 const loopStatus = document.getElementById('loopStatus');
+const sdrStatus = document.getElementById('sdrStatus');
+const modelDropdown = document.getElementById('modelSelect');
 let allFeatures = [];
 let sortedTimes = [];
+let sourcesInitialized = false;
+let selectedModel = '';
 
 const popupHtml = (p) => `<strong>${p.name}</strong><br>ID: ${p.id}<br>Kind: ${p.kind}<br>Azimuth: ${p.azimuth_deg ?? 'N/A'}°<br>Beamwidth: ${p.beamwidth_deg ?? 'N/A'}°<br>Ray length: ${p.ray_length_m ?? 'N/A'} m<br>Sector radius: ${p.wedge_radius_m ?? 'N/A'} m<br>Confidence ellipse: ${p.confidence_major_m ?? 'N/A'}m × ${p.confidence_minor_m ?? 'N/A'}m`;
-
 
 function formatFreqHz(hz) {
   return `${(hz / 1_000_000).toFixed(3)} MHz`;
 }
 
 async function refreshSdrStatus() {
-  const response = await fetch('/api/sdr/capabilities');
-  const data = await response.json();
-  const active = data.active_config;
-  const modelMeta = data.capabilities.models[active.model] || {};
-  sdrStatus.innerHTML = `<strong>Device:</strong> ${modelMeta.label || active.model}<br>` +
-    `<strong>Model ID:</strong> ${active.model}<br>` +
-    `<strong>Center:</strong> ${formatFreqHz(active.center_freq_hz)}<br>` +
-    `<strong>Sample Rate:</strong> ${active.sample_rate_sps.toLocaleString()} sps<br>` +
-    `<strong>Bandwidth:</strong> ${active.bandwidth_hz.toLocaleString()} Hz<br>` +
-    `<strong>Gain:</strong> ${active.gain_db} dB · <strong>PPM:</strong> ${active.ppm}`;
+  if (!sdrStatus) return;
+  try {
+    const data = await fetch('/api/sdr/capabilities').then((r) => r.json());
+    const active = data.active_config;
+    const modelMeta = (data.capabilities.models || {})[active.model] || {};
+    sdrStatus.innerHTML = `<strong>Device:</strong> ${modelMeta.label || active.model}<br>` +
+      `<strong>Model ID:</strong> ${active.model}<br>` +
+      `<strong>Center:</strong> ${formatFreqHz(active.center_freq_hz)}<br>` +
+      `<strong>Sample Rate:</strong> ${active.sample_rate_sps.toLocaleString()} sps<br>` +
+      `<strong>Bandwidth:</strong> ${active.bandwidth_hz.toLocaleString()} Hz<br>` +
+      `<strong>Gain:</strong> ${active.gain_db} dB · <strong>PPM:</strong> ${active.ppm}`;
+  } catch (_err) {
+    if (sdrStatus) sdrStatus.textContent = 'SDR: unavailable';
+  }
+}
+
+async function populateModelDropdown() {
+  if (!modelDropdown) return;
+  try {
+    const data = await fetch('/api/models/discover').then((r) => r.json());
+    const options = [['', '— None —']];
+    (data.ollama || []).forEach((m) => options.push([`ollama/${m}`, `Ollama: ${m}`]));
+    (data.python_local || []).forEach((m) => options.push([`python_local/${m}`, `Local: ${m}`]));
+    modelDropdown.innerHTML = options.map(([val, label]) => `<option value="${val}">${label}</option>`).join('');
+    if (selectedModel) modelDropdown.value = selectedModel;
+  } catch (_err) {
+    if (modelDropdown) modelDropdown.innerHTML = '<option value="">— unavailable —</option>';
+  }
+}
+
+async function applyModelSelection(value) {
+  selectedModel = value;
+  const [provider, ...rest] = value.split('/');
+  const model = rest.join('/') || 'baseline-v1';
+  if (value) {
+    await fetch(`/api/loop/config?provider=${encodeURIComponent(provider)}&model=${encodeURIComponent(model)}`, { method: 'POST' }).catch(() => {});
+  }
 }
 
 function cutoffFromSlider() {
@@ -42,7 +72,6 @@ function asFeature(siteFeature, geometry, overlayType) {
   if (!geometry) return null;
   return { type: 'Feature', geometry, properties: { ...siteFeature.properties, overlay_type: overlayType } };
 }
-
 
 async function refreshLoopStatus() {
   try {
@@ -57,7 +86,6 @@ async function refreshLoopStatus() {
 async function refreshSource() {
   if (!sourcesInitialized) return;
 
-  setAssessmentLoopStatus(true);
   const cutoff = cutoffFromSlider();
   timeLabel.textContent = `Cutoff: ${cutoff}`;
   const data = await fetch(`/api/features?timestamp_lte=${encodeURIComponent(cutoff)}`).then((r) => r.json());
@@ -82,13 +110,6 @@ async function refreshSource() {
   map.getSource('confidence').setData({ type: 'FeatureCollection', features: confidenceToggle.checked ? confidence : [] });
 }
 
-tabs.forEach((tab) => tab.addEventListener('click', () => {
-  tabs.forEach((t) => t.classList.remove('active'));
-  tabPanels.forEach((p) => p.classList.remove('active'));
-  tab.classList.add('active');
-  document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
-}));
-
 map.on('load', async () => {
   map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
   const seed = await fetch('/api/features').then((r) => r.json());
@@ -107,8 +128,17 @@ map.on('load', async () => {
 
   ['infra-layer', 'estimate-layer'].forEach((layer) => map.on('click', layer, (e) => { const f = e.features?.[0]; if (f) details.innerHTML = popupHtml(f.properties); }));
 
+  sourcesInitialized = true;
+
   [infraToggle, estToggle, rayToggle, sectorToggle, confidenceToggle, timeRange].forEach((el) => el.addEventListener('input', refreshSource));
   refreshSource();
   refreshLoopStatus();
+  refreshSdrStatus();
+  populateModelDropdown();
   setInterval(refreshLoopStatus, 10000);
+  setInterval(refreshSdrStatus, 30000);
 });
+
+if (modelDropdown) {
+  modelDropdown.addEventListener('change', () => applyModelSelection(modelDropdown.value));
+}

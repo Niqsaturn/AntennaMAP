@@ -4,6 +4,7 @@ import json
 import threading
 import time
 import yaml
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib import error, request
@@ -16,13 +17,21 @@ from pydantic import BaseModel
 from backend.foxhunt.models import FoxHuntObservation
 from backend.foxhunt.service import FoxHuntService
 from backend.geometry.rf_overlays import build_overlay_geometries
-from backend.rf_propagation import ModelName, generate_snapshot
 from backend.ingest.infrastructure import ingest_infrastructure
 from backend.ingest.sdr_ingest import SDRIngestService, SDRStoragePaths
 from backend.ingest.storage import append_jsonl, read_jsonl
 from backend.ingest.telemetry import ingest_telemetry
+from backend.ml.triangulation_pipeline import (
+    TelemetrySample as MLTelemetrySample,
+    load_latest_model,
+    parse_samples,
+    predict_error,
+    solve_weighted_least_squares,
+    train_error_model,
+)
 from backend.pipeline.compliance import COMPLIANCE_POLICY
 from backend.pipeline.ingest import evaluate_retraining_triggers, summarize_telemetry
+from backend.rf_propagation import ModelName, generate_snapshot
 from backend.training.trainer import train_single_triangulation_baseline
 from backend.training.triangulation_baseline import estimate_single_operator
 
@@ -35,6 +44,7 @@ RUN_METADATA_FILE = ROOT / "backend" / "pipeline" / "data" / "model_runs.jsonl"
 INGEST_ISSUES_FILE = ROOT / "backend" / "pipeline" / "data" / "ingest_issues.jsonl"
 SDR_CAPABILITIES_FILE = ROOT / "backend" / "sdr" / "capabilities.yaml"
 MODELS_DIR = ROOT / "models"
+ML_MODELS_DIR = ROOT / "backend" / "ml" / "models"
 RUNTIME_CONFIG_FILE = ROOT / "backend" / "pipeline" / "data" / "runtime_config.json"
 TRAINING_STATUS_FILE = ROOT / "backend" / "pipeline" / "data" / "training_status.json"
 
@@ -46,6 +56,22 @@ class SDRConfigureRequest(BaseModel):
     bandwidth_hz: int
     gain_db: float
     ppm: int = 0
+
+
+class KiwiConnectRequest(BaseModel):
+    host: str
+    port: int = 8073
+    center_freq_hz: float = 7_100_000.0
+
+
+class MLTrainRequest(BaseModel):
+    samples: list[dict]
+    target_error_m: list[float]
+    model_version: str = ""
+
+
+class MLSolveRequest(BaseModel):
+    samples: list[dict]
 
 
 def load_sdr_capabilities() -> dict:
@@ -97,6 +123,7 @@ def validate_sdr_config(payload: SDRConfigureRequest, capabilities: dict) -> lis
 
 
 ACTIVE_SDR_CONFIG = None
+_active_kiwi_adapter = None
 
 
 def _default_sdr_config() -> dict:
@@ -312,7 +339,22 @@ def run_inference(provider: str, model: str, payload: dict) -> dict:
         with request.urlopen(req, timeout=30.0) as resp:
             return json.loads(resp.read().decode("utf-8"))
     if provider == "python_local":
-        return {"provider": provider, "model": model, "output": "python-local inference adapter not yet implemented", "input": payload}
+        samples_raw = payload.get("samples", [])
+        if samples_raw:
+            try:
+                ml_samples = parse_samples(samples_raw)
+                result = solve_weighted_least_squares(ml_samples)
+                trained_model = load_latest_model()
+                predicted_error = predict_error(trained_model, ml_samples) if trained_model else None
+                return {
+                    "provider": provider,
+                    "model": model,
+                    "inference": asdict(result),
+                    "predicted_error_m": predicted_error,
+                }
+            except Exception as exc:
+                return {"provider": provider, "model": model, "error": str(exc)}
+        return {"provider": provider, "model": model, "output": "no samples provided"}
     raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
 
 
@@ -327,6 +369,8 @@ def _telemetry_in_window(timestamp_lte: str | None) -> tuple[list[dict], datetim
         telemetry = [sample for sample in telemetry if _parse_timestamp(sample["timestamp"]) <= cutoff]
     return telemetry, cutoff
 
+
+# ── Health & Loop ──────────────────────────────────────────────────────────────
 
 @app.get("/api/health")
 def health() -> dict:
@@ -353,6 +397,8 @@ def loop_status() -> dict:
     return loop_manager.status()
 
 
+# ── Features ──────────────────────────────────────────────────────────────────
+
 @app.get("/api/features")
 def get_features(kind: str | None = Query(default=None, pattern="^(infrastructure|estimate)?$"), timestamp_lte: str | None = None) -> dict:
     data = load_geojson()
@@ -363,6 +409,8 @@ def get_features(kind: str | None = Query(default=None, pattern="^(infrastructur
     if timestamp_lte:
         cutoff = _parse_timestamp(timestamp_lte)
         features = [f for f in features if _parse_timestamp(f["properties"]["timestamp"]) <= cutoff]
+
+    features = [enrich_feature(f, []) for f in features]
     return {"type": "FeatureCollection", "features": features}
 
 
@@ -371,6 +419,52 @@ def get_features_count(kind: str | None = Query(default=None, pattern="^(infrast
     payload = get_features(kind=kind, timestamp_lte=timestamp_lte)
     return {"count": len(payload["features"]), "kind": kind, "timestamp_lte": timestamp_lte}
 
+
+# ── SDR ───────────────────────────────────────────────────────────────────────
+
+@app.get("/api/sdr/capabilities")
+def sdr_capabilities() -> dict:
+    caps = load_sdr_capabilities()
+    active = ACTIVE_SDR_CONFIG or _default_sdr_config()
+    return {"active_config": active, "capabilities": caps}
+
+
+@app.post("/api/sdr/kiwi/connect")
+def kiwi_connect(body: KiwiConnectRequest) -> dict:
+    global _active_kiwi_adapter, ACTIVE_SDR_CONFIG
+    from backend.sdr.adapters.kiwisdr_adapter import KiwiSdrAdapter
+    _active_kiwi_adapter = KiwiSdrAdapter(config={
+        "host": body.host,
+        "port": body.port,
+        "center_freq_hz": body.center_freq_hz,
+    })
+    _active_kiwi_adapter.connect()
+    ACTIVE_SDR_CONFIG = {
+        "model": "kiwisdr",
+        "host": body.host,
+        "port": body.port,
+        "center_freq_hz": int(body.center_freq_hz),
+        "sample_rate_sps": 12000,
+        "bandwidth_hz": 12000,
+        "gain_db": 0,
+        "ppm": 0,
+    }
+    return {
+        "status": "connected",
+        "host": body.host,
+        "port": body.port,
+        "websocket_available": _active_kiwi_adapter.read_device_metadata().extras.get("websocket_available", False),
+    }
+
+
+# ── Models ────────────────────────────────────────────────────────────────────
+
+@app.get("/api/models/discover")
+def models_discover() -> dict:
+    return discover_available_models()
+
+
+# ── Pipeline & Training ───────────────────────────────────────────────────────
 
 @app.post("/api/pipeline/ingest")
 def ingest_pipeline(model_version: str = "baseline-v1") -> dict:
@@ -456,10 +550,106 @@ def training_history() -> dict:
     return {"history": history, "count": len(history)}
 
 
+# ── ML Pipeline (error calibration + triangulation) ───────────────────────────
+
+@app.post("/api/ml/train")
+def ml_train(body: MLTrainRequest) -> dict:
+    if len(body.samples) != len(body.target_error_m):
+        raise HTTPException(status_code=400, detail="samples and target_error_m must have equal length")
+    if len(body.samples) < 2:
+        raise HTTPException(status_code=400, detail="at least 2 samples required for training")
+
+    version = body.model_version or datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    try:
+        ml_samples = parse_samples(body.samples)
+        result = train_error_model(ml_samples, body.target_error_m, version)
+        return {
+            "model_version": version,
+            "rmse": result.rmse,
+            "sample_count": result.metadata.sample_count,
+            "trained_at": result.metadata.trained_at,
+            "feature_schema": result.metadata.feature_schema,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/ml/solve")
+def ml_solve(body: MLSolveRequest) -> dict:
+    if not body.samples:
+        raise HTTPException(status_code=400, detail="samples list is empty")
+    try:
+        ml_samples = parse_samples(body.samples)
+        result = solve_weighted_least_squares(ml_samples)
+        trained_model = load_latest_model()
+        predicted_error = None
+        if trained_model and len(ml_samples) >= 2:
+            try:
+                predicted_error = round(predict_error(trained_model, ml_samples), 2)
+            except Exception:
+                pass
+        return {
+            "center_lat": result.center_lat,
+            "center_lon": result.center_lon,
+            "covariance": result.covariance,
+            "ellipse_major_m": result.ellipse_major_m,
+            "ellipse_minor_m": result.ellipse_minor_m,
+            "ellipse_angle_deg": result.ellipse_angle_deg,
+            "quality_score": result.quality_score,
+            "predicted_error_m": predicted_error,
+            "num_samples": len(ml_samples),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/ml/models")
+def ml_models() -> dict:
+    files = sorted(ML_MODELS_DIR.glob("triangulation_*.json"))
+    models = []
+    for f in files:
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            meta = data.get("metadata", {})
+            models.append({
+                "filename": f.name,
+                "model_version": meta.get("model_version"),
+                "trained_at": meta.get("trained_at"),
+                "sample_count": meta.get("sample_count"),
+                "rmse": data.get("rmse"),
+            })
+        except Exception:
+            pass
+    return {"models": models, "count": len(models)}
+
+
+@app.get("/api/telemetry/samples")
+def telemetry_samples(limit: int = 100) -> dict:
+    rows = read_jsonl(INGEST_LOG_FILE)
+    return {"count": len(rows), "samples": rows[-limit:]}
+
+
+# ── FoxHunt ───────────────────────────────────────────────────────────────────
+
 @app.post("/api/foxhunt/session/start")
 def foxhunt_start_session() -> dict:
     session = foxhunt_service.start_session()
     return session.model_dump(mode="json")
+
+
+@app.get("/api/foxhunt/sessions")
+def foxhunt_list_sessions() -> dict:
+    sessions = []
+    for s in foxhunt_service.sessions.values():
+        sessions.append({
+            "id": s.id,
+            "status": s.status,
+            "started_at": s.started_at.isoformat(),
+            "stopped_at": s.stopped_at.isoformat() if s.stopped_at else None,
+            "observation_count": len(s.observations),
+            "has_estimate": s.estimate is not None,
+        })
+    return {"sessions": sessions, "count": len(sessions)}
 
 
 @app.get("/api/foxhunt/session/{session_id}")
@@ -483,6 +673,8 @@ def foxhunt_add_observation(session_id: str, observation: FoxHuntObservation) ->
     session = foxhunt_service.append_observation(session_id, observation)
     return session.model_dump(mode="json")
 
+
+# ── Propagation ───────────────────────────────────────────────────────────────
 
 @app.get("/api/propagation")
 def propagation_snapshot(site_id: str, model: ModelName = "fspl") -> dict:

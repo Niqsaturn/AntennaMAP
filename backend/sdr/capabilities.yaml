@@ -36,3 +36,39 @@ models:
       ppm:
         min: -100
         max: 100
+  airspy-r2:
+    label: Airspy R2
+    constraints:
+      sample_rate_sps:
+        min: 2500000
+        max: 10000000
+      center_freq_hz:
+        min: 24000000
+        max: 1800000000
+      bandwidth_hz:
+        min: 2000000
+        max: 10000000
+      gain_db:
+        min: 0
+        max: 21
+      ppm:
+        min: -100
+        max: 100
+  kiwisdr:
+    label: KiwiSDR (Network)
+    constraints:
+      sample_rate_sps:
+        min: 12000
+        max: 12000
+      center_freq_hz:
+        min: 10000
+        max: 30000000
+      bandwidth_hz:
+        min: 10000
+        max: 30000000
+      gain_db:
+        min: 0
+        max: 0
+      ppm:
+        min: 0
+        max: 0

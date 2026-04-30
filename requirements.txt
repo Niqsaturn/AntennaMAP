@@ -4,3 +4,9 @@ numpy==2.2.5
 PyYAML==6.0.2
 httpx==0.28.1
 pytest==8.3.5
+# KiwiSDR network integration (no hardware required)
+websocket-client==1.8.0
+# Optional SDR hardware libraries — install only if you have the hardware:
+# pip install pyrtlsdr       # RTL-SDR Blog V3 / generic RTL2832U dongles
+# pip install pyhackrf       # HackRF One
+# pip install airspy         # Airspy R2 / Mini
