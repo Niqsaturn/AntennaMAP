@@ -1,40 +1,19 @@
+"""RTL-SDR virtual receiver model.
+
+Generates mathematically computed spectrum data — no physical hardware or
+USB drivers required.  All signal levels are derived from propagation models
+and any known-signal metadata supplied in the adapter config.
+"""
 from __future__ import annotations
 
-import math
 from datetime import datetime, timezone
 
-import numpy as np
-
 from backend.sdr.base import BaseSdrAdapter, DeviceMetadata, SignalMetrics, SpectrumWindow
-
-try:
-    from rtlsdr import RtlSdr as _RtlSdr
-    _HAS_RTLSDR = True
-except ImportError:
-    _HAS_RTLSDR = False
-
-
-def _rtlsdr_read(config: dict) -> dict:
-    sdr = _RtlSdr(device_index=int(config.get("device_index", 0)))
-    try:
-        sdr.sample_rate = float(config.get("sample_rate_hz", 2.4e6))
-        sdr.center_freq = float(config.get("center_freq_hz", 1090e6))
-        sdr.gain = config.get("gain_db", "auto")
-        sdr.freq_correction = int(config.get("ppm_error", 0))
-        samples = sdr.read_samples(256 * 1024)
-    finally:
-        sdr.close()
-
-    psd = np.abs(np.fft.fftshift(np.fft.fft(samples, n=64))) ** 2
-    psd_db = [round(10 * math.log10(max(v, 1e-20)), 2) for v in psd]
-    noise = sorted(psd_db)[: len(psd_db) // 4]
-    rssi = round(float(np.mean(psd_db)), 2)
-    snr = round(max(0.0, max(psd_db) - float(np.mean(noise))), 2)
-    return {"psd_db": psd_db, "rssi_dbm": rssi, "snr_db": snr}
+from backend.sdr.computed_spectrum import computed_psd, psd_to_metrics
 
 
 class RtlSdrAdapter(BaseSdrAdapter):
-    """RTL-SDR adapter. Uses pyrtlsdr when installed; falls back to mock data."""
+    """RTL-SDR model: VHF/UHF coverage 24 MHz – 1.766 GHz, 2.4 MHz default BW."""
 
     def connect(self) -> None:
         self.connected = True
@@ -43,48 +22,42 @@ class RtlSdrAdapter(BaseSdrAdapter):
         self.connected = False
 
     def read_spectrum_window(self) -> SpectrumWindow:
-        if _HAS_RTLSDR:
-            try:
-                data = _rtlsdr_read(self.config)
-                return SpectrumWindow(
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                    center_freq_hz=float(self.config.get("center_freq_hz", 1090e6)),
-                    sample_rate_hz=float(self.config.get("sample_rate_hz", 2.4e6)),
-                    psd_bins_db=data["psd_db"],
-                )
-            except Exception:
-                pass
+        center = float(self.config.get("center_freq_hz", 433.92e6))
+        sr = float(self.config.get("sample_rate_hz", 2.4e6))
+        psd = computed_psd(
+            center_freq_hz=center,
+            sample_rate_hz=sr,
+            n_bins=64,
+            known_signals=self.config.get("known_signals"),
+            config=self.config,
+        )
         return SpectrumWindow(
             timestamp=datetime.now(timezone.utc).isoformat(),
-            center_freq_hz=float(self.config.get("center_freq_hz", 1090e6)),
-            sample_rate_hz=float(self.config.get("sample_rate_hz", 2.4e6)),
-            psd_bins_db=list(self.config.get("psd_bins_db", [-80.0, -79.3, -81.1, -83.2])),
+            center_freq_hz=center,
+            sample_rate_hz=sr,
+            psd_bins_db=psd,
         )
 
     def read_signal_metrics(self) -> SignalMetrics:
-        if _HAS_RTLSDR:
-            try:
-                data = _rtlsdr_read(self.config)
-                return SignalMetrics(
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                    rssi_dbm=data["rssi_dbm"],
-                    snr_db=data["snr_db"],
-                )
-            except Exception:
-                pass
+        window = self.read_spectrum_window()
+        rssi, snr = psd_to_metrics(window.psd_bins_db)
         return SignalMetrics(
             timestamp=datetime.now(timezone.utc).isoformat(),
-            rssi_dbm=float(self.config.get("rssi_dbm", -72.1)),
-            snr_db=float(self.config.get("snr_db", 18.0)),
+            rssi_dbm=rssi,
+            snr_db=snr,
         )
 
     def read_device_metadata(self) -> DeviceMetadata:
         return DeviceMetadata(
             provider="rtlsdr",
-            device_id=self.config.get("device_id", "rtl-0"),
+            device_id=self.config.get("device_id", "rtlsdr-virtual"),
             serial=self.config.get("serial"),
             gain_db=self.config.get("gain_db", 20.7),
             gps_lat=self.config.get("gps_lat"),
             gps_lon=self.config.get("gps_lon"),
-            extras={"ppm_error": self.config.get("ppm_error", 0), "library_available": _HAS_RTLSDR},
+            extras={
+                "mode": "computed",
+                "freq_range_mhz": "24–1766",
+                "noise_figure_db": self.config.get("noise_figure_db", 5.0),
+            },
         )

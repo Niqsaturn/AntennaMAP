@@ -29,9 +29,28 @@ from backend.ml.triangulation_pipeline import (
     solve_weighted_least_squares,
     train_error_model,
 )
+from backend.datasources.fcc import search_licenses_near
+from backend.datasources.cell_towers import search_towers_near
+from backend.datasources.spectrum_allocations import (
+    allocations_for_freq,
+    allocations_in_range,
+    known_signals_for_band,
+)
 from backend.pipeline.compliance import COMPLIANCE_POLICY
 from backend.pipeline.ingest import evaluate_retraining_triggers, summarize_telemetry
+from backend.rf.array_calculator import (
+    LinearArrayParams,
+    PlanarArrayParams,
+    RadarParams,
+    linear_array_pattern,
+    planar_array_pattern,
+    radar_range_equation,
+    estimate_rcs,
+    link_budget,
+    bearing_from_phase_difference,
+)
 from backend.rf_propagation import ModelName, generate_snapshot
+from backend.sdr.computed_spectrum import computed_psd, psd_to_metrics
 from backend.training.trainer import train_single_triangulation_baseline
 from backend.training.triangulation_baseline import estimate_single_operator
 
@@ -72,6 +91,59 @@ class MLTrainRequest(BaseModel):
 
 class MLSolveRequest(BaseModel):
     samples: list[dict]
+
+
+class ArrayCalculateRequest(BaseModel):
+    array_type: str = "linear"
+    n_elements: int = 8
+    element_spacing_m: float = 0.0      # 0 → auto λ/2
+    frequency_hz: float = 433.92e6
+    steering_angle_deg: float = 0.0
+    window: str = "uniform"
+    # Planar extras
+    n_y: int = 8
+    dy_m: float = 0.0
+    steer_az_deg: float = 0.0
+    steer_el_deg: float = 0.0
+
+
+class RadarEstimateRequest(BaseModel):
+    peak_power_w: float = 1000.0
+    antenna_gain_dbi: float = 30.0
+    frequency_hz: float = 10e9
+    rcs_m2: float | None = None
+    target_type: str = "car"
+    noise_figure_db: float = 5.0
+    bandwidth_hz: float = 1e6
+    losses_db: float = 3.0
+
+
+class LinkBudgetRequest(BaseModel):
+    tx_power_dbm: float = 30.0
+    tx_gain_dbi: float = 15.0
+    rx_gain_dbi: float = 5.0
+    frequency_hz: float = 900e6
+    distance_km: float = 10.0
+    rx_noise_figure_db: float = 5.0
+    bandwidth_hz: float = 200e3
+    losses_db: float = 2.0
+    model: str = "fspl"
+
+
+class ComputedSpectrumRequest(BaseModel):
+    center_freq_hz: float = 433.92e6
+    sample_rate_hz: float = 2.4e6
+    n_bins: int = 64
+    provider: str = "rtlsdr"
+    use_band_allocations: bool = True
+    known_signals: list[dict] = []
+
+
+class AIAnalyzeRequest(BaseModel):
+    model: str
+    prompt: str = ""
+    spectrum_data: dict = {}
+    context: str = ""
 
 
 def load_sdr_capabilities() -> dict:
@@ -708,6 +780,277 @@ def propagation_snapshot(site_id: str, model: ModelName = "fspl") -> dict:
         grid_resolution=41,
     )
     return {"site_id": site_id, "snapshot": snapshot}
+
+
+# ── Computed Spectrum ─────────────────────────────────────────────────────────
+
+@app.post("/api/sdr/spectrum/computed")
+def sdr_computed_spectrum(body: ComputedSpectrumRequest) -> dict:
+    """Generate a mathematically computed PSD for a virtual receiver window."""
+    signals = list(body.known_signals)
+    if body.use_band_allocations:
+        signals = known_signals_for_band(body.center_freq_hz, body.sample_rate_hz) + signals
+    psd = computed_psd(
+        center_freq_hz=body.center_freq_hz,
+        sample_rate_hz=body.sample_rate_hz,
+        n_bins=body.n_bins,
+        known_signals=signals,
+    )
+    rssi, snr = psd_to_metrics(psd)
+    freq_low = (body.center_freq_hz - body.sample_rate_hz / 2) / 1e6
+    freq_high = (body.center_freq_hz + body.sample_rate_hz / 2) / 1e6
+    allocations = allocations_in_range(freq_low, freq_high)
+    return {
+        "provider": body.provider,
+        "center_freq_hz": body.center_freq_hz,
+        "sample_rate_hz": body.sample_rate_hz,
+        "n_bins": body.n_bins,
+        "psd_bins_db": psd,
+        "rssi_dbm": rssi,
+        "snr_db": snr,
+        "band_allocations": allocations,
+        "computed": True,
+    }
+
+
+# ── Data Sources ──────────────────────────────────────────────────────────────
+
+@app.get("/api/datasources/spectrum/allocations")
+def spectrum_allocations(freq_mhz: float, bandwidth_mhz: float = 0.0) -> dict:
+    """Return ITU/FCC band plan allocations for a given frequency."""
+    if bandwidth_mhz > 0:
+        result = allocations_in_range(freq_mhz - bandwidth_mhz / 2, freq_mhz + bandwidth_mhz / 2)
+    else:
+        result = allocations_for_freq(freq_mhz)
+    return {"freq_mhz": freq_mhz, "bandwidth_mhz": bandwidth_mhz, "allocations": result, "count": len(result)}
+
+
+@app.get("/api/datasources/fcc")
+async def fcc_licenses(lat: float, lon: float, radius_km: float = 50.0, limit: int = 100) -> dict:
+    """Query FCC ULS for licensed transmitters near (lat, lon)."""
+    licenses = await search_licenses_near(lat=lat, lon=lon, radius_km=radius_km, limit=limit)
+    return {"lat": lat, "lon": lon, "radius_km": radius_km, "count": len(licenses), "licenses": licenses}
+
+
+@app.get("/api/datasources/towers")
+async def cell_towers(lat: float, lon: float, radius_km: float = 25.0, api_key: str = "") -> dict:
+    """Return cell tower data near (lat, lon) from OpenCelliD / Mozilla."""
+    towers = await search_towers_near(lat=lat, lon=lon, radius_km=radius_km, api_key=api_key or None)
+    return {"lat": lat, "lon": lon, "radius_km": radius_km, "count": len(towers), "towers": towers}
+
+
+@app.post("/api/datasources/synthesize")
+async def synthesize_rf_map(lat: float, lon: float, radius_km: float = 50.0) -> dict:
+    """Synthesize a combined RF emitter map from all available data sources.
+
+    Aggregates FCC licenses, cell towers, and spectrum allocation data to
+    build a geo-referenced list of known transmitters for the given area.
+    """
+    fcc_task = search_licenses_near(lat=lat, lon=lon, radius_km=radius_km, limit=200)
+    tower_task = search_towers_near(lat=lat, lon=lon, radius_km=radius_km)
+    import asyncio
+    licenses, towers = await asyncio.gather(fcc_task, tower_task)
+
+    emitters = []
+    for lic in licenses:
+        if lic.get("lat") and lic.get("lon"):
+            emitters.append({
+                "type": "fcc_licensed",
+                "lat": lic["lat"],
+                "lon": lic["lon"],
+                "callsign": lic.get("callsign"),
+                "service": lic.get("service"),
+                "freq_center_mhz": lic.get("freq_center_mhz"),
+                "eirp_dbm": lic.get("eirp_dbm"),
+                "azimuth_deg": lic.get("azimuth_deg"),
+                "source": "fcc_uls",
+            })
+    for tower in towers:
+        if tower.get("lat") and tower.get("lon"):
+            emitters.append({
+                "type": "cell_tower",
+                "lat": tower["lat"],
+                "lon": tower["lon"],
+                "radio": tower.get("radio"),
+                "freq_mhz": tower.get("freq_mhz"),
+                "source": tower.get("source"),
+            })
+
+    geojson_features = [
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [e["lon"], e["lat"]]},
+            "properties": {k: v for k, v in e.items() if k not in ("lat", "lon")},
+        }
+        for e in emitters
+    ]
+    return {
+        "lat": lat, "lon": lon, "radius_km": radius_km,
+        "emitter_count": len(emitters),
+        "geojson": {"type": "FeatureCollection", "features": geojson_features},
+        "sources": {"fcc_licenses": len(licenses), "cell_towers": len(towers)},
+    }
+
+
+# ── RF Array & Radar Calculations ─────────────────────────────────────────────
+
+@app.post("/api/rf/array/calculate")
+def rf_array_calculate(body: ArrayCalculateRequest) -> dict:
+    """Compute antenna array beam pattern and key metrics."""
+    lam = 3e8 / max(body.frequency_hz, 1.0)
+    spacing = body.element_spacing_m if body.element_spacing_m > 0 else lam / 2.0
+
+    if body.array_type == "planar":
+        dy = body.dy_m if body.dy_m > 0 else lam / 2.0
+        params = PlanarArrayParams(
+            n_x=body.n_elements,
+            n_y=body.n_y,
+            dx_m=spacing,
+            dy_m=dy,
+            frequency_hz=body.frequency_hz,
+            steer_az_deg=body.steer_az_deg,
+            steer_el_deg=body.steer_el_deg,
+            window=body.window,
+        )
+        result = planar_array_pattern(params)
+    else:
+        params_lin = LinearArrayParams(
+            n_elements=body.n_elements,
+            element_spacing_m=spacing,
+            frequency_hz=body.frequency_hz,
+            steering_angle_deg=body.steering_angle_deg,
+            window=body.window,
+        )
+        result = linear_array_pattern(params_lin)
+
+    return {
+        "array_type": body.array_type,
+        "n_elements": body.n_elements,
+        "frequency_hz": body.frequency_hz,
+        "element_spacing_m": round(spacing, 6),
+        "wavelength_m": round(lam, 6),
+        "main_beam_deg": result.main_beam_deg,
+        "hpbw_deg": result.hpbw_deg,
+        "first_sidelobe_db": result.first_sidelobe_db,
+        "array_gain_db": result.array_gain_db,
+        "pattern": {"angles_deg": result.angles_deg, "pattern_db": result.pattern_db},
+        "pattern_2d": result.pattern_2d,
+    }
+
+
+@app.post("/api/rf/radar/estimate")
+def rf_radar_estimate(body: RadarEstimateRequest) -> dict:
+    """Solve the radar range equation and return detection metrics."""
+    rcs = body.rcs_m2
+    if rcs is None:
+        rcs = estimate_rcs(body.target_type, body.frequency_hz)
+
+    params = RadarParams(
+        peak_power_w=body.peak_power_w,
+        antenna_gain_dbi=body.antenna_gain_dbi,
+        frequency_hz=body.frequency_hz,
+        rcs_m2=rcs,
+        noise_figure_db=body.noise_figure_db,
+        bandwidth_hz=body.bandwidth_hz,
+        losses_db=body.losses_db,
+    )
+    result = radar_range_equation(params)
+    return {
+        "target_type": body.target_type,
+        "rcs_m2": rcs,
+        "max_range_km": result.max_range_km,
+        "snr_at_range_db": result.snr_at_range_db,
+        "min_detectable_rcs_m2": result.min_detectable_rcs_m2,
+        "noise_power_dbm": result.noise_power_dbm,
+        "frequency_hz": body.frequency_hz,
+        "wavelength_m": round(3e8 / body.frequency_hz, 6),
+    }
+
+
+@app.post("/api/rf/link_budget")
+def rf_link_budget(body: LinkBudgetRequest) -> dict:
+    """Compute a complete RF link budget."""
+    result = link_budget(
+        tx_power_dbm=body.tx_power_dbm,
+        tx_gain_dbi=body.tx_gain_dbi,
+        rx_gain_dbi=body.rx_gain_dbi,
+        frequency_hz=body.frequency_hz,
+        distance_km=body.distance_km,
+        rx_noise_figure_db=body.rx_noise_figure_db,
+        bandwidth_hz=body.bandwidth_hz,
+        losses_db=body.losses_db,
+        model=body.model,
+    )
+    return {
+        "received_power_dbm": result.received_power_dbm,
+        "path_loss_db": result.path_loss_db,
+        "snr_db": result.snr_db,
+        "link_margin_db": result.link_margin_db,
+        **result.details,
+    }
+
+
+@app.post("/api/rf/bearing")
+def rf_bearing_from_phase(
+    phase_diff_rad: float,
+    element_spacing_m: float,
+    frequency_hz: float,
+    array_orientation_deg: float = 0.0,
+) -> dict:
+    """Estimate signal bearing from inter-element phase difference."""
+    bearing = bearing_from_phase_difference(
+        phase_diff_rad=phase_diff_rad,
+        element_spacing_m=element_spacing_m,
+        frequency_hz=frequency_hz,
+        array_orientation_deg=array_orientation_deg,
+    )
+    return {
+        "bearing_deg": bearing,
+        "phase_diff_rad": phase_diff_rad,
+        "element_spacing_m": element_spacing_m,
+        "frequency_hz": frequency_hz,
+    }
+
+
+# ── AI Analysis ───────────────────────────────────────────────────────────────
+
+@app.post("/api/ai/analyze")
+def ai_analyze(body: AIAnalyzeRequest) -> dict:
+    """Send spectrum / RF data to an Ollama model for AI-driven analysis.
+
+    The model receives a structured prompt combining the user's context with
+    a JSON representation of the spectrum_data payload.
+    """
+    system_prompt = (
+        "You are an expert RF signal analyst. Analyze the provided spectrum data "
+        "and identify: signal types, likely emitter sources, bearing estimates, "
+        "anomalies, and any potential interference sources. "
+        "Provide concise, technically accurate assessments."
+    )
+    user_content = body.prompt or (
+        f"Analyze this spectrum observation:\n```json\n{json.dumps(body.spectrum_data, indent=2)}\n```"
+    )
+    if body.context:
+        user_content = f"Context: {body.context}\n\n{user_content}"
+
+    ollama_body = json.dumps({
+        "model": body.model,
+        "system": system_prompt,
+        "prompt": user_content,
+        "stream": False,
+    }).encode("utf-8")
+    req = request.Request(
+        "http://127.0.0.1:11434/api/generate",
+        data=ollama_body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, timeout=60.0) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+        return {"model": body.model, "analysis": result.get("response", ""), "done": result.get("done", False)}
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Ollama unavailable: {exc}") from exc
 
 
 app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")
