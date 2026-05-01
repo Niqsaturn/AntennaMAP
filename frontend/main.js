@@ -69,6 +69,8 @@ const seedBtn         = document.getElementById('seedRegion');
 const loopIntervalEl  = document.getElementById('loopInterval');
 const analysisLog     = document.getElementById('analysisLog');
 const logHeader       = document.getElementById('analysisLogHeader');
+const goToLatLon      = document.getElementById('goToLatLon');
+const goToBtn         = document.getElementById('goToBtn');
 
 let sortedTimes = [];
 let sourcesInitialized = false;
@@ -361,6 +363,32 @@ async function refreshUncertain() {
   } catch (_) {}
 }
 
+
+
+function parseLatLon(input) {
+  if (!input) return null;
+  const parts = input.split(',').map((part) => Number(part.trim()));
+  if (parts.length !== 2 || parts.some((n) => Number.isNaN(n))) return null;
+  const [lat, lon] = parts;
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+  return { lat, lon };
+}
+
+function setupGoToLatLon() {
+  const go = () => {
+    const parsed = parseLatLon(goToLatLon?.value || '');
+    if (!parsed) {
+      if (details) details.textContent = 'Invalid lat/lon. Use format: lat, lon (e.g. 37.7749, -122.4194).';
+      return;
+    }
+    map.flyTo({ center: [parsed.lon, parsed.lat], zoom: Math.max(map.getZoom(), 9), speed: 0.8 });
+    if (details) details.textContent = `Moved map to ${parsed.lat.toFixed(5)}, ${parsed.lon.toFixed(5)}.`;
+  };
+  goToBtn?.addEventListener('click', go);
+  goToLatLon?.addEventListener('keydown', (evt) => {
+    if (evt.key === 'Enter') go();
+  });
+}
 // ── Map load ───────────────────────────────────────────────────────────────
 map.on('load', async () => {
   // Setup globe fog and spin
@@ -378,6 +406,14 @@ map.on('load', async () => {
   }
 
   map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+  map.addControl(new maplibregl.GeolocateControl({
+    positionOptions: { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    trackUserLocation: true,
+    showUserHeading: true,
+  }), 'bottom-right');
+  map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-left');
+  map.addControl(new maplibregl.FullscreenControl(), 'top-right');
+  setupGoToLatLon();
 
   // Seed GeoJSON features from API
   const seed = await fetch('/api/features').then((r) => r.json()).catch(() => ({ features: [] }));
