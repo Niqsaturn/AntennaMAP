@@ -806,6 +806,7 @@ function _handleSseEvent(ev) {
       }
       break;
     }
+  }
 }
 
 // ── Ellipse polygon helper ────────────────────────────────────────────────
