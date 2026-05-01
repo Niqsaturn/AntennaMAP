@@ -1664,4 +1664,214 @@ def ai_analyze(body: AIAnalyzeRequest) -> dict:
         raise HTTPException(status_code=503, detail=f"Ollama unavailable: {exc}") from exc
 
 
+# ── SSE event stream ──────────────────────────────────────────────────────────
+
+import asyncio as _asyncio
+
+from fastapi import Request as _Request
+from fastapi.responses import StreamingResponse as _StreamingResponse
+
+_app_loop: _asyncio.AbstractEventLoop | None = None
+
+
+@app.on_event("startup")
+async def _capture_loop() -> None:
+    global _app_loop
+    _app_loop = _asyncio.get_event_loop()
+    from backend.foxhunt.auto_loop import event_bus
+    event_bus.set_loop(_app_loop)
+
+
+@app.get("/api/events")
+async def sse_events(request: _Request):
+    """Server-Sent Events stream for real-time fox hunt and SDR updates."""
+    import asyncio as _aio
+    q: _aio.Queue = _aio.Queue()
+    from backend.foxhunt.auto_loop import event_bus
+    event_bus.subscribe(q)
+
+    async def _generate():
+        yield "data: {\"type\":\"connected\"}\n\n"
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await _aio.wait_for(q.get(), timeout=25.0)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except _aio.TimeoutError:
+                    yield "data: {\"type\":\"keepalive\"}\n\n"
+        finally:
+            event_bus.unsubscribe(q)
+
+    return _StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ── KiwiSDR node management ───────────────────────────────────────────────────
+
+class KiwiNodeRequest(BaseModel):
+    host: str
+    port: int = 8073
+    lat: float | None = None
+    lon: float | None = None
+    description: str = ""
+
+
+@app.get("/api/sdr/nodes")
+def sdr_nodes_list():
+    from backend.sdr.kiwisdr_client import node_pool
+    return {"nodes": node_pool.list_nodes()}
+
+
+@app.post("/api/sdr/nodes")
+def sdr_nodes_add(req: KiwiNodeRequest):
+    from backend.sdr.kiwisdr_client import node_pool
+    node_pool.add_node(req.host, req.port, req.lat, req.lon, req.description)
+    return {"ok": True, "nodes": node_pool.list_nodes()}
+
+
+@app.delete("/api/sdr/nodes/{host}")
+def sdr_nodes_remove(host: str, port: int = Query(default=8073)):
+    from backend.sdr.kiwisdr_client import node_pool
+    node_pool.remove_node(host, port)
+    return {"ok": True}
+
+
+@app.get("/api/sdr/nodes/check")
+def sdr_nodes_check():
+    from backend.sdr.kiwisdr_client import node_pool
+    from dataclasses import asdict as _asdict
+    statuses = node_pool.check_all()
+    return {"statuses": [_asdict(s) for s in statuses]}
+
+
+@app.get("/api/sdr/scan")
+def sdr_scan_peaks(min_snr: float = Query(default=6.0)):
+    """Scan all configured KiwiSDR nodes and return signal peaks."""
+    from backend.sdr.kiwisdr_client import node_pool
+    peaks = node_pool.scan_peaks_all(min_snr_db=min_snr)
+    return {"peaks": peaks, "node_count": len(node_pool.list_nodes())}
+
+
+@app.get("/api/sdr/scan/rssi")
+def sdr_scan_rssi(freq_hz: float = Query(...)):
+    """Query all nodes for RSSI at a specific frequency."""
+    from backend.sdr.kiwisdr_client import node_pool
+    readings = node_pool.scan_rssi(freq_hz)
+    return {"freq_hz": freq_hz, "readings": readings}
+
+
+# ── Fox hunt auto loop API ────────────────────────────────────────────────────
+
+class FoxHuntStartRequest(BaseModel):
+    lat: float = 0.0
+    lon: float = 0.0
+    scan_interval_s: float = 15.0
+    min_obs_to_solve: int = 2
+
+
+class FoxBearingRequest(BaseModel):
+    bearing_deg: float
+    snr_db: float = 10.0
+    freq_hz: float | None = None
+    lat: float | None = None   # override operator position
+    lon: float | None = None
+
+
+class FoxMultilatRequest(BaseModel):
+    rssi_obs: list[dict] = []
+    tdoa_obs: list[dict] = []
+    bearing_obs: list[dict] = []
+    freq_hz: float = 100e6
+
+
+@app.post("/api/foxhunt/auto/start")
+def foxhunt_auto_start(req: FoxHuntStartRequest):
+    from backend.foxhunt.auto_loop import auto_loop
+    auto_loop.scan_interval_s = req.scan_interval_s
+    auto_loop.min_obs_to_solve = req.min_obs_to_solve
+    auto_loop.start(req.lat, req.lon)
+    return {"ok": True, "state": auto_loop.status()}
+
+
+@app.post("/api/foxhunt/auto/stop")
+def foxhunt_auto_stop():
+    from backend.foxhunt.auto_loop import auto_loop
+    auto_loop.stop()
+    return {"ok": True}
+
+
+@app.get("/api/foxhunt/auto/status")
+def foxhunt_auto_status():
+    from backend.foxhunt.auto_loop import auto_loop
+    return auto_loop.status()
+
+
+@app.post("/api/foxhunt/auto/observe")
+def foxhunt_add_bearing(req: FoxBearingRequest):
+    from backend.foxhunt.auto_loop import auto_loop
+    if req.lat is not None and req.lon is not None:
+        auto_loop.update_operator_position(req.lat, req.lon)
+    result = auto_loop.add_bearing_observation(req.bearing_deg, req.snr_db, req.freq_hz)
+    return result
+
+
+@app.post("/api/foxhunt/auto/position")
+def foxhunt_update_position(lat: float = Query(...), lon: float = Query(...)):
+    from backend.foxhunt.auto_loop import auto_loop
+    auto_loop.update_operator_position(lat, lon)
+    return {"ok": True, "lat": lat, "lon": lon}
+
+
+@app.get("/api/foxhunt/auto/confirmed")
+def foxhunt_confirmed_features():
+    from backend.foxhunt.auto_loop import auto_loop
+    features = auto_loop.confirmed_features()
+    return {"type": "FeatureCollection", "features": features}
+
+
+@app.post("/api/foxhunt/triangulate")
+def foxhunt_triangulate(req: FoxMultilatRequest):
+    """One-shot triangulation endpoint — supply observations, get a fix.
+
+    Each dict in rssi_obs:    {lat, lon, rssi_dbm, freq_hz, eirp_dbm?, weight?}
+    Each dict in bearing_obs: {lat, lon, bearing_deg, snr_db, freq_hz, sigma_deg?}
+    Each dict in tdoa_obs:    {lat_ref, lon_ref, lat_remote, lon_remote, tdoa_s, freq_hz, weight?}
+    """
+    from backend.foxhunt.multilateration import (
+        RSSIObs, BearingObs, TDOAObs, locate_transmitter, ellipse_polygon
+    )
+    rssi = [RSSIObs(**{k: v for k, v in o.items() if k in
+                       ("lat", "lon", "rssi_dbm", "freq_hz", "eirp_dbm", "weight")})
+            for o in req.rssi_obs if o.get("lat") and o.get("lon")]
+    bearings = [BearingObs(**{k: v for k, v in o.items() if k in
+                               ("lat", "lon", "bearing_deg", "snr_db", "freq_hz", "sigma_deg")})
+                for o in req.bearing_obs if o.get("lat") and o.get("lon")]
+    tdoa = [TDOAObs(**{k: v for k, v in o.items() if k in
+                        ("lat_ref", "lon_ref", "lat_remote", "lon_remote", "tdoa_s", "freq_hz", "weight")})
+            for o in req.tdoa_obs]
+
+    fix = locate_transmitter(rssi_obs=rssi, bearing_obs=bearings, tdoa_obs=tdoa, freq_hz=req.freq_hz)
+    ellipse = ellipse_polygon(fix.lat, fix.lon, max(fix.ellipse_major_m, 50), max(fix.ellipse_minor_m, 30))
+    return {
+        "lat": fix.lat, "lon": fix.lon,
+        "uncertainty_m": fix.uncertainty_m,
+        "confidence": fix.confidence,
+        "methods": fix.methods_used,
+        "ellipse_polygon": ellipse,
+        "per_method": [
+            {"method": e.method, "lat": e.lat, "lon": e.lon,
+             "uncertainty_m": e.uncertainty_m, "confidence": e.confidence, "notes": e.notes}
+            for e in fix.per_method
+        ],
+    }
+
+
 app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")
