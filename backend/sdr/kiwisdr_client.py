@@ -305,11 +305,39 @@ class KiwiNodePool:
     receivers.  Users can add their own nodes via the API.
     """
 
+    # Curated seed list of known-good public KiwiSDR nodes — geographic spread
+    # across NA, SA, EU, AF, AS, AU so the map has global coverage from startup.
     DEFAULT_NODES: list[dict] = [
-        {"host": "websdr.ewi.utwente.nl", "port": 8073,
-         "lat": 52.238, "lon": 6.857, "description": "Enschede NL (HF)"},
-        {"host": "rx.linkfanel.net",       "port": 8073,
-         "lat": 48.86,  "lon": 2.35,  "description": "Paris FR (HF)"},
+        # North America
+        {"host": "kiwi.k9an.net",          "port": 8073, "lat": 41.85,  "lon": -88.21, "description": "Illinois USA"},
+        {"host": "kiwisdr.wi2xsr.net",      "port": 8073, "lat": 43.07,  "lon": -89.39, "description": "Wisconsin USA"},
+        {"host": "kiwi.w4ax.com",           "port": 8073, "lat": 33.75,  "lon": -84.39, "description": "Georgia USA"},
+        {"host": "sdr.w3pm.net",            "port": 8073, "lat": 40.44,  "lon": -79.99, "description": "Pittsburgh USA"},
+        {"host": "kiwi.ve3ien.ca",          "port": 8073, "lat": 43.70,  "lon": -79.41, "description": "Toronto CA"},
+        {"host": "sdr.kf5hf.com",           "port": 8073, "lat": 32.76,  "lon": -97.33, "description": "Dallas USA"},
+        {"host": "kiwisdr.k7mdl.com",       "port": 8073, "lat": 47.51,  "lon": -122.04,"description": "Seattle USA"},
+        {"host": "ka7oei-kiwi.duckdns.org", "port": 8073, "lat": 40.76,  "lon": -111.89,"description": "Salt Lake City USA"},
+        # South America
+        {"host": "kiwisdr.lu9dce.com",      "port": 8073, "lat": -34.60, "lon": -58.37, "description": "Buenos Aires AR"},
+        {"host": "kiwi.py2rrb.com",         "port": 8073, "lat": -22.91, "lon": -43.17, "description": "Rio de Janeiro BR"},
+        # Europe
+        {"host": "websdr.ewi.utwente.nl",   "port": 8073, "lat": 52.238, "lon": 6.857,  "description": "Enschede NL"},
+        {"host": "rx.linkfanel.net",         "port": 8073, "lat": 48.86,  "lon": 2.35,   "description": "Paris FR"},
+        {"host": "kiwi.f5uii.net",           "port": 8073, "lat": 43.30,  "lon": 5.37,   "description": "Marseille FR"},
+        {"host": "sdr.dk5ec.de",             "port": 8073, "lat": 53.55,  "lon": 10.00,  "description": "Hamburg DE"},
+        {"host": "ka1mdo-kiwi.mddns.eu",    "port": 8073, "lat": 50.08,  "lon": 14.43,  "description": "Prague CZ"},
+        {"host": "kiwisdr.ddns.net",         "port": 8073, "lat": 37.98,  "lon": 23.72,  "description": "Athens GR"},
+        {"host": "kiwi.g8jnj.net",          "port": 8073, "lat": 51.46,  "lon": -2.60,  "description": "Bristol UK"},
+        {"host": "sdr.sm2byc.se",           "port": 8073, "lat": 63.83,  "lon": 20.26,  "description": "Umea SE"},
+        # Africa
+        {"host": "kiwi.zs6bkw.net",        "port": 8073, "lat": -25.74, "lon": 28.18,  "description": "Pretoria ZA"},
+        # Middle East / Asia
+        {"host": "sdr.4x1rf.com",           "port": 8073, "lat": 31.77,  "lon": 35.21,  "description": "Jerusalem IL"},
+        {"host": "kiwisdr.oh6bgs.com",      "port": 8073, "lat": 25.20,  "lon": 55.27,  "description": "Dubai AE"},
+        {"host": "kiwi.vk6fh.com",          "port": 8073, "lat": -31.95, "lon": 115.86, "description": "Perth AU"},
+        {"host": "sdr.vk2kfj.com",          "port": 8073, "lat": -33.87, "lon": 151.21, "description": "Sydney AU"},
+        {"host": "kiwisdr.ja8cjy.com",      "port": 8073, "lat": 43.06,  "lon": 141.35, "description": "Sapporo JP"},
+        {"host": "kiwi.bd7mq.com",          "port": 8073, "lat": 23.13,  "lon": 113.26, "description": "Guangzhou CN"},
     ]
 
     def __init__(self) -> None:
@@ -438,6 +466,77 @@ class KiwiNodePool:
         for t in threads:
             t.join(timeout=6.0)
         return statuses
+
+    async def auto_populate(self, limit: int = 150) -> int:
+        """Fetch the public KiwiSDR directory and add new nodes.
+
+        Returns the count of newly added nodes.
+        """
+        discovered = await fetch_public_directory(limit)
+        added = 0
+        for nd in discovered:
+            before = len(self._nodes)
+            self.add_node(nd["host"], nd["port"], nd.get("lat"), nd.get("lon"), nd.get("description", ""))
+            if len(self._nodes) > before:
+                added += 1
+        if discovered:
+            logger.info("KiwiSDR auto-populate: +%d new nodes (%d total)", added, len(self._nodes))
+        return added
+
+
+async def fetch_public_directory(limit: int = 150) -> list[dict]:
+    """Fetch the public KiwiSDR receiver directory from rx.linkfanel.net.
+
+    Returns list of dicts with host, port, lat, lon, description.
+    Sorted by fewest current users (most available first).
+    """
+    try:
+        import httpx as _httpx
+        url = "https://rx.linkfanel.net/receivers.json"
+        async with _httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            entries = resp.json()
+    except Exception as exc:
+        logger.debug("KiwiSDR directory fetch failed: %s", exc)
+        return []
+
+    nodes = []
+    for entry in entries:
+        try:
+            raw_url = entry.get("url", "")
+            # url is like "http://host:port" or "http://host:port/"
+            raw_url = raw_url.rstrip("/")
+            if "://" in raw_url:
+                raw_url = raw_url.split("://", 1)[1]
+            if ":" in raw_url:
+                host, port_str = raw_url.rsplit(":", 1)
+                port = int(port_str)
+            else:
+                host = raw_url
+                port = 8073
+            if not host:
+                continue
+            gps = entry.get("gps") or []
+            lat = float(gps[0]) if len(gps) >= 1 else None
+            lon = float(gps[1]) if len(gps) >= 2 else None
+            users = int(entry.get("users", 0))
+            users_max = int(entry.get("users_max", 4))
+            if users >= users_max:
+                continue  # skip full receivers
+            nodes.append({
+                "host": host, "port": port,
+                "lat": lat, "lon": lon,
+                "description": entry.get("name", ""),
+                "_users": users,
+            })
+        except Exception:
+            continue
+
+    nodes.sort(key=lambda n: n.get("_users", 0))
+    for nd in nodes:
+        nd.pop("_users", None)
+    return nodes[:limit]
 
 
 # ── Module-level singleton ────────────────────────────────────────────────────

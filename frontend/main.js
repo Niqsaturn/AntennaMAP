@@ -10,6 +10,11 @@ const _DARK_STYLE = {
     },
   },
   layers: [
+    { id: 'sky', type: 'sky', paint: {
+      'sky-type': 'atmosphere',
+      'sky-atmosphere-sun': [0.0, 90.0],
+      'sky-atmosphere-sun-intensity': 5,
+    } },
     { id: 'background', type: 'background', paint: { 'background-color': '#0f172a' } },
     { id: 'osm', type: 'raster', source: 'osm-tiles', paint: { 'raster-opacity': 0.55, 'raster-saturation': -0.7, 'raster-brightness-min': 0.05 } },
   ],
@@ -18,8 +23,36 @@ const _DARK_STYLE = {
 const map = new maplibregl.Map({
   container: 'map',
   style: _DARK_STYLE,
-  center: [-80.27, 25.97], zoom: 11, pitch: 0, bearing: 0, antialias: true,
+  projection: { type: 'globe' },
+  center: [0, 20], zoom: 1.8, pitch: 0, bearing: 0, antialias: true,
 });
+
+// Globe slow-spin — paused while user interacts
+let _spinActive = true;
+let _spinResumeTimer = null;
+function _spinGlobe() {
+  if (_spinActive && map.getZoom() < 5) {
+    map.setCenter([map.getCenter().lng + 0.06, map.getCenter().lat]);
+  }
+  requestAnimationFrame(_spinGlobe);
+}
+map.once('load', () => {
+  requestAnimationFrame(_spinGlobe);
+  map.setFog({
+    color: 'rgba(15,23,42,0.85)',
+    'high-color': '#1e3a5f',
+    'horizon-blend': 0.04,
+    'space-color': '#0f172a',
+    'star-intensity': 0.35,
+  });
+});
+['mousedown', 'touchstart', 'wheel'].forEach((evt) =>
+  map.on(evt, () => {
+    _spinActive = false;
+    clearTimeout(_spinResumeTimer);
+    _spinResumeTimer = setTimeout(() => { _spinActive = true; }, 3000);
+  })
+);
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const details         = document.getElementById('details');
@@ -509,11 +542,8 @@ const bearingDegEl   = document.getElementById('bearingDeg');
 const bearingSnrEl   = document.getElementById('bearingSnr');
 const confirmedList  = document.getElementById('confirmedList');
 const nodeList       = document.getElementById('nodeList');
-const nodeHostEl     = document.getElementById('nodeHost');
-const nodeLatEl      = document.getElementById('nodeLat');
-const nodeLonEl      = document.getElementById('nodeLon');
-const addNodeBtn     = document.getElementById('addNode');
-const checkNodesBtn  = document.getElementById('checkNodes');
+const rediscoverBtn       = document.getElementById('rediscoverNodes');
+const nodeDiscoveryStatus = document.getElementById('nodeDiscoveryStatus');
 const waterfallCanvas= document.getElementById('waterfallCanvas');
 const wfFreqAxis     = document.getElementById('waterfallFreqAxis');
 const peakList       = document.getElementById('peakList');
@@ -758,12 +788,13 @@ function _handleSseEvent(ev) {
       break;
     }
 
-    case 'sdr_frame':
-      if (ev.bins_db && ev.bins_db.length >= WF_BINS) {
-        _pushWaterfallRow(ev.bins_db);
+    case 'sdr_frame': {
+      const bins = ev.bins || ev.bins_db;
+      if (bins && bins.length >= WF_BINS) {
+        _pushWaterfallRow(bins);
       }
       break;
-  }
+    }
 }
 
 // ── Ellipse polygon helper ────────────────────────────────────────────────
@@ -824,13 +855,17 @@ window._tuneToFreq = function(freqHz) {
 async function _refreshNodeList() {
   const data = await fetch('/api/sdr/nodes').then((r) => r.json()).catch(() => ({ nodes: [] }));
   const nodes = data.nodes || [];
+  if (nodeDiscoveryStatus && nodes.length > 0) {
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    nodeDiscoveryStatus.textContent = `${nodes.length} nodes · updated ${now}`;
+  }
   if (!nodeList) return;
   nodeList.innerHTML = nodes.map((n) =>
     `<div class="node-item" data-hostport="${n.host}:${n.port}">
        <span class="node-dot unknown"></span>
-       <span class="node-label">${n.host}:${n.port}${n.description ? ' — ' + n.description : ''}</span>
+       <span class="node-label">${n.host}:${n.port}${n.description ? ' · ' + n.description : ''}</span>
      </div>`
-  ).join('') || '<div style="color:#475569;font-size:11px;padding:4px">No nodes configured</div>';
+  ).join('') || '<div style="color:#475569;font-size:11px;padding:4px">Discovering…</div>';
 }
 
 // ── Fox hunt button handlers ──────────────────────────────────────────────
@@ -864,39 +899,15 @@ addBearingBtn?.addEventListener('click', async () => {
   }).catch(() => {});
 });
 
-addNodeBtn?.addEventListener('click', async () => {
-  const raw = nodeHostEl?.value?.trim();
-  if (!raw) return;
-  const [host, portStr] = raw.split(':');
-  const port = parseInt(portStr || '8073', 10);
-  const lat = nodeLatEl?.value ? parseFloat(nodeLatEl.value) : null;
-  const lon = nodeLonEl?.value ? parseFloat(nodeLonEl.value) : null;
-  await fetch('/api/sdr/nodes', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ host, port, lat, lon }),
-  }).catch(() => {});
-  if (nodeHostEl) nodeHostEl.value = '';
-  if (nodeLatEl) nodeLatEl.value = '';
-  if (nodeLonEl) nodeLonEl.value = '';
+rediscoverBtn?.addEventListener('click', async () => {
+  if (rediscoverBtn) rediscoverBtn.textContent = '↺ Discovering…';
+  const data = await fetch('/api/sdr/nodes/discover', { method: 'POST' })
+    .then((r) => r.json()).catch(() => null);
+  if (nodeDiscoveryStatus && data) {
+    nodeDiscoveryStatus.textContent = `+${data.added} discovered · ${data.total} total`;
+  }
+  if (rediscoverBtn) rediscoverBtn.textContent = '↺ Rediscover';
   await _refreshNodeList();
-});
-
-checkNodesBtn?.addEventListener('click', async () => {
-  if (checkNodesBtn) checkNodesBtn.textContent = 'Checking…';
-  const data = await fetch('/api/sdr/nodes/check').then((r) => r.json()).catch(() => ({ statuses: [] }));
-  const items = nodeList?.querySelectorAll('.node-item') || [];
-  const statusByHost = {};
-  (data.statuses || []).forEach((s) => { statusByHost[`${s.host}:${s.port}`] = s; });
-  items.forEach((item) => {
-    const key = item.dataset.hostport;
-    const s = key ? statusByHost[key] : undefined;
-    const dot = item.querySelector('.node-dot');
-    if (dot && s) {
-      dot.className = `node-dot ${s.reachable ? 'ok' : 'err'}`;
-    }
-  });
-  if (checkNodesBtn) checkNodesBtn.textContent = 'Check Reachability';
 });
 
 // Toggle visibility of fox layers
