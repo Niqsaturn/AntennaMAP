@@ -84,8 +84,16 @@ from backend.storage.map_store import (
     log_analysis,
     get_analysis_log,
     update_feature_kind,
+    update_tile_status,
     upsert_tile,
+    get_uncertain_features,
+    get_calibration_stats,
+    record_position_error,
 )
+from backend.analysis.waterfall_analyzer import analyze_psd
+from backend.analysis.range_estimator import estimate_range_km
+from backend.analysis.bearing_tracker import estimate_bearing as estimate_bearing_track
+from backend.analysis.kalman_tracker import PositionKalman
 from backend.training.trainer import train_single_triangulation_baseline
 from backend.training.triangulation_baseline import estimate_single_operator
 
@@ -393,8 +401,9 @@ loop_manager = LoopManager()
 
 
 def _run_analysis_cycle(cfg: dict) -> None:
-    """AI-powered analysis: detect signals, speculate arrays, advance US coverage."""
+    """Full SDR analysis cycle: waterfall peaks → range estimation → triangulation → Kalman → map store."""
     import asyncio
+    import math as _math
     import time as _time
     t0 = _time.monotonic()
 
@@ -406,7 +415,66 @@ def _run_analysis_cycle(cfg: dict) -> None:
     op_lat = next((s["lat"] for s in reversed(samples) if s.get("lat")), 0.0)
     op_lon = next((s["lon"] for s in reversed(samples) if s.get("lon")), 0.0)
 
-    # FCC context (synchronous wrapper via asyncio)
+    # ------------------------------------------------------------------
+    # Waterfall analysis: enrich samples that carry PSD bins
+    # ------------------------------------------------------------------
+    for s in samples:
+        psd = s.get("psd_bins_db")
+        if not psd and isinstance(s.get("spectral"), dict):
+            psd = s["spectral"].get("psd_bins_db")
+        if psd and len(psd) >= 4:
+            freq_hz = s.get("frequency_hz") or s.get("freq_hz") or 100e6
+            sr = s.get("sample_rate_hz", 2_400_000.0) or 2_400_000.0
+            try:
+                peaks = analyze_psd(psd, float(freq_hz), float(sr))
+                if peaks:
+                    s["_spectral_peaks"] = [
+                        {"freq_hz": p.center_freq_hz, "bw_hz": p.bandwidth_3db_hz,
+                         "peak_dbm": p.peak_dbm, "snr_db": p.snr_db,
+                         "modulation_hint": p.modulation_hint}
+                        for p in peaks
+                    ]
+            except Exception:
+                pass
+
+    # ------------------------------------------------------------------
+    # Triangulation: build TelemetrySamples and run WLS if geometry is good
+    # ------------------------------------------------------------------
+    triangulation_anchor: dict | None = None
+    tri_samples_raw = [
+        s for s in samples
+        if s.get("bearing_deg") is not None and s.get("lat") and s.get("lon")
+    ]
+    if len(tri_samples_raw) >= 3:
+        try:
+            ml_samples = [
+                MLTelemetrySample(
+                    timestamp=s.get("timestamp", ""),
+                    lat=float(s["lat"]),
+                    lon=float(s["lon"]),
+                    heading_deg=float(s.get("heading_deg", s.get("bearing_deg", 0))),
+                    bearing_estimate_deg=float(s["bearing_deg"]),
+                    rssi_dbm=float(s.get("rssi_dbm", -100)),
+                    snr_db=float(s.get("snr_db", 0)),
+                    frequency_hz=float(s.get("frequency_hz") or s.get("freq_hz") or 1e8),
+                    bandwidth_hz=float(s.get("bandwidth_hz", 200_000)),
+                )
+                for s in tri_samples_raw
+            ]
+            wls = solve_weighted_least_squares(ml_samples)
+            if wls.quality_score > 0.3:
+                triangulation_anchor = {
+                    "lat": wls.center_lat,
+                    "lon": wls.center_lon,
+                    "uncertainty_m": wls.ellipse_major_m / 2.0,
+                    "quality_score": wls.quality_score,
+                }
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # FCC context
+    # ------------------------------------------------------------------
     try:
         fcc_context = asyncio.run(search_licenses_near(op_lat, op_lon, radius_km=25.0, limit=20))
     except Exception:
@@ -416,35 +484,98 @@ def _run_analysis_cycle(cfg: dict) -> None:
     examples = get_recent_examples(3)
     examples_text = format_examples_for_prompt(examples)
 
-    # Detect signals with selected model
+    # ------------------------------------------------------------------
+    # Signal detection with selected model
+    # ------------------------------------------------------------------
     model_config = {"provider": cfg.get("provider", "local"), "model": cfg.get("model", "")}
     result = detect_signals(
         samples, model_config, fcc_context, examples_text, op_lat, op_lon
     )
 
-    # Generate speculative features
+    # ------------------------------------------------------------------
+    # Generate and persist speculative features
+    # ------------------------------------------------------------------
     speculative = []
     if result.detections:
         speculative = speculate_from_detections(result.detections, op_lat, op_lon)
+
+        # Override position with triangulation anchor when WLS quality is high
+        if triangulation_anchor and triangulation_anchor["quality_score"] > 0.6:
+            for feat in speculative:
+                props = feat.get("properties", {})
+                if props.get("kind") == "speculative":
+                    feat["geometry"]["coordinates"] = [
+                        triangulation_anchor["lon"],
+                        triangulation_anchor["lat"],
+                    ]
+                    props["position_source"] = "triangulation_wls"
+                    props["triangulation_quality"] = round(triangulation_anchor["quality_score"], 3)
+
         for feat in speculative:
             try:
                 upsert_feature(feat)
+                # Apply Kalman smoothing to persisted position
+                fid = feat.get("properties", {}).get("id")
+                coords = feat.get("geometry", {}).get("coordinates", [])
+                if fid and len(coords) == 2:
+                    unc_m = triangulation_anchor["uncertainty_m"] if triangulation_anchor else 2000.0
+                    kf = PositionKalman.for_feature(fid, float(coords[1]), float(coords[0]))
+                    kf.predict()
+                    s_lat, s_lon, s_unc = kf.update(float(coords[1]), float(coords[0]), unc_m)
+                    # Update stored position with Kalman-smoothed estimate
+                    feat["geometry"]["coordinates"] = [s_lon, s_lat]
+                    feat.get("properties", {})["kalman_uncertainty_m"] = round(s_unc, 1)
+                    upsert_feature(feat)
+                    kf.save(fid)
             except Exception:
                 pass
 
+    # ------------------------------------------------------------------
+    # Mark operator's current tile as analyzed
+    # ------------------------------------------------------------------
+    if op_lat != 0.0 and op_lon != 0.0:
+        try:
+            import math as _m
+            tile_deg = 0.5
+            lat_f = round(_m.floor(op_lat / tile_deg) * tile_deg, 1)
+            lon_f = round(_m.floor(op_lon / tile_deg) * tile_deg, 1)
+            tile_id = f"{lat_f:.1f}_{lon_f:.1f}"
+            update_tile_status(tile_id, "analyzed")
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
     # Advance US coverage queue (seed next tiles)
+    # ------------------------------------------------------------------
     try:
         asyncio.run(coverage_advance_queue(op_lat, op_lon, n=2))
     except Exception:
         pass
 
+    # ------------------------------------------------------------------
+    # Auto-retraining check (python_local only)
+    # ------------------------------------------------------------------
+    if cfg.get("provider") == "python_local":
+        try:
+            triggers = evaluate_retraining_triggers()
+            if triggers.get("should_retrain"):
+                # Kick off retraining in background — avoid blocking the loop
+                threading.Thread(
+                    target=lambda: train_single_triangulation_baseline(INGEST_LOG_FILE),
+                    daemon=True,
+                ).start()
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
     # Log analysis result
+    # ------------------------------------------------------------------
     ms = (_time.monotonic() - t0) * 1000
     try:
         log_analysis(
             model=cfg.get("model", ""),
             provider=cfg.get("provider", "local"),
-            input_summary=f"{len(samples)} samples, lat={op_lat:.3f}, lon={op_lon:.3f}",
+            input_summary=f"{len(samples)} samples, lat={op_lat:.3f}, lon={op_lon:.3f}, tri_anchor={'yes' if triangulation_anchor else 'no'}",
             detections_count=len(result.detections),
             detections_json=json.dumps([d.__dict__ if hasattr(d, '__dict__') else str(d)
                                         for d in result.detections], default=str),
@@ -981,6 +1112,23 @@ def analysis_log(limit: int = 20) -> dict:
     return {"count": len(rows), "entries": rows}
 
 
+@app.get("/api/analysis/uncertain")
+def analysis_uncertain(limit: int = 10) -> dict:
+    """Return speculative features most in need of user confirmation.
+
+    Ranked by lowest (confidence / analysis_count) ratio — highest-observed,
+    lowest-confidence features are most informative to confirm or dismiss.
+    """
+    features = get_uncertain_features(limit)
+    return {"count": len(features), "features": features}
+
+
+@app.get("/api/analysis/calibration")
+def analysis_calibration() -> dict:
+    """Return mean / median position error across confirmed features."""
+    return get_calibration_stats()
+
+
 # ── Persistent Map Store ───────────────────────────────────────────────────────
 
 @app.get("/api/map/features")
@@ -1028,20 +1176,40 @@ def usmap_progress() -> dict:
 def map_confirm(body: ConfirmDetectionRequest) -> dict:
     """Confirm or dismiss a speculative detection.
 
-    Confirmed features: promote to 'estimate', store as few-shot example.
+    Confirmed features: promote to 'estimate', store as few-shot example,
+    record position error for calibration stats.
     Dismissed features: remove from map store.
     """
+    import math as _m
     if body.confirmed:
-        # Load current feature to get detection properties
         current = features_in_bounds(-90, 90, -180, 180, limit=10000)
         feat = next(
             (f for f in current["features"] if f["properties"].get("id") == body.feature_id),
             None,
         )
-        if feat and body.true_lat and body.true_lon:
+        position_error_m = None
+        if feat and body.true_lat is not None and body.true_lon is not None:
             add_confirmed_example(feat["properties"], body.true_lat, body.true_lon)
+            # Compute position error and update calibration stats
+            stored_lat = feat["geometry"]["coordinates"][1]
+            stored_lon = feat["geometry"]["coordinates"][0]
+            R = 6_371_000.0
+            dlat = _m.radians(body.true_lat - stored_lat)
+            dlon = _m.radians(body.true_lon - stored_lon)
+            a = (_m.sin(dlat / 2) ** 2 +
+                 _m.cos(_m.radians(stored_lat)) * _m.cos(_m.radians(body.true_lat)) * _m.sin(dlon / 2) ** 2)
+            position_error_m = round(2 * R * _m.asin(_m.sqrt(a)), 1)
+            try:
+                record_position_error(body.feature_id, position_error_m)
+            except Exception:
+                pass
         update_feature_kind(body.feature_id, "estimate")
-        return {"feature_id": body.feature_id, "action": "confirmed", "new_kind": "estimate"}
+        return {
+            "feature_id": body.feature_id,
+            "action": "confirmed",
+            "new_kind": "estimate",
+            "position_error_m": position_error_m,
+        }
     else:
         update_feature_kind(body.feature_id, "dismissed")
         return {"feature_id": body.feature_id, "action": "dismissed"}

@@ -16,9 +16,10 @@ const coverageToggle  = document.getElementById('coverageToggle');
 const satelliteToggle = document.getElementById('satelliteToggle');
 const timeRange       = document.getElementById('timeRange');
 const timeLabel       = document.getElementById('timeLabel');
-const loopStatus      = document.getElementById('loopStatus');
-const sdrStatus       = document.getElementById('sdrStatus');
-const coverageStatus  = document.getElementById('coverageStatus');
+const loopStatus        = document.getElementById('loopStatus');
+const sdrStatus         = document.getElementById('sdrStatus');
+const coverageStatus    = document.getElementById('coverageStatus');
+const calibrationStatus = document.getElementById('calibrationStatus');
 const modelDropdown   = document.getElementById('modelSelect');
 const satGroupSelect  = document.getElementById('satGroup');
 const analyzeBtn      = document.getElementById('analyzeNow');
@@ -274,6 +275,37 @@ window.confirmFeature = async function(featureId, confirmed) {
   } catch (_) {}
 };
 
+// ── Calibration status ─────────────────────────────────────────────────────
+async function refreshCalibration() {
+  if (!calibrationStatus) return;
+  try {
+    const d = await fetch('/api/analysis/calibration').then((r) => r.json());
+    if (d.count === 0) {
+      calibrationStatus.textContent = 'Calibration: no confirmed features yet';
+    } else {
+      calibrationStatus.innerHTML =
+        `<strong>Calibration:</strong> ${d.count} confirmed · ` +
+        `mean error ${d.mean_error_m != null ? d.mean_error_m.toFixed(0) : '—'} m · ` +
+        `median ${d.median_error_m != null ? d.median_error_m.toFixed(0) : '—'} m`;
+    }
+  } catch (_) { if (calibrationStatus) calibrationStatus.textContent = 'Calibration: —'; }
+}
+
+// ── Uncertain features ─────────────────────────────────────────────────────
+async function refreshUncertain() {
+  if (!sourcesInitialized) return;
+  try {
+    const d = await fetch('/api/analysis/uncertain?limit=10').then((r) => r.json());
+    const count = d.count || 0;
+    if (analyzeBtn) {
+      analyzeBtn.textContent = count > 0 ? `Analyze Now (${count} need review)` : 'Analyze Now';
+    }
+    // Update uncertain-ring source with features needing confirmation
+    const src = map.getSource('speculative-uncertain');
+    if (src) src.setData({ type: 'FeatureCollection', features: d.features || [] });
+  } catch (_) {}
+}
+
 // ── Map load ───────────────────────────────────────────────────────────────
 map.on('load', async () => {
   map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
@@ -291,8 +323,9 @@ map.on('load', async () => {
   map.addSource('spec-rays',  { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('spec-sectors',{ type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('spec-ellipses',{ type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-  map.addSource('coverage',   { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-  map.addSource('satellites', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('coverage',             { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('satellites',           { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('speculative-uncertain',{ type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
 
   // ── Layers — base ────────────────────────────────────────────────────────
   map.addLayer({ id: 'infra-layer',    type: 'circle', source: 'sites',
@@ -333,6 +366,17 @@ map.on('load', async () => {
     } });
   map.addLayer({ id: 'coverage-outline', type: 'line', source: 'coverage',
     paint: { 'line-color': '#374151', 'line-width': 0.5, 'line-opacity': 0.4 } });
+
+  // ── Layers — satellites ──────────────────────────────────────────────────
+  // ── Layer — uncertain features (pulsing outer ring) ─────────────────────
+  map.addLayer({ id: 'uncertain-ring', type: 'circle', source: 'speculative-uncertain',
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['get', 'confidence'], 0, 14, 1, 18],
+      'circle-color': 'transparent',
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#facc15',  // amber ring = needs review
+      'circle-opacity': 0.85,
+    } });
 
   // ── Layers — satellites ──────────────────────────────────────────────────
   map.addLayer({ id: 'satellite-layer', type: 'circle', source: 'satellites',
@@ -389,6 +433,8 @@ map.on('load', async () => {
   populateModelDropdown();
   refreshSpeculative();
   refreshAnalysisLog();
+  refreshCalibration();
+  refreshUncertain();
 
   // ── Polling intervals ─────────────────────────────────────────────────────
   setInterval(refreshLoopStatus, 10000);
@@ -396,6 +442,8 @@ map.on('load', async () => {
   setInterval(refreshSpeculative, 15000);
   setInterval(refreshAnalysisLog, 30000);
   setInterval(refreshCoverage, 60000);
+  setInterval(refreshCalibration, 60000);
+  setInterval(refreshUncertain, 60000);
 });
 
 if (modelDropdown) {

@@ -10,7 +10,7 @@ import asyncio
 import math
 from typing import Any
 
-from backend.storage.map_store import upsert_tile, get_coverage_progress
+from backend.storage.map_store import upsert_tile, get_coverage_progress, update_tile_status
 
 # CONUS bounding box (0.5° tiles → 50 lat × 117 lon = 5,850 tiles)
 _LAT_MIN, _LAT_MAX = 24.5, 49.5
@@ -179,6 +179,9 @@ async def seed_tile(tile: dict[str, Any]) -> int:
         status="seeded",
         feature_count=count,
     )
+    # Promote to "analyzed" immediately if any features were found
+    if count > 0:
+        update_tile_status(tile["tile_id"], "analyzed", count)
     return count
 
 

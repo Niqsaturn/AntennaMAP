@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS features (
     confidence REAL DEFAULT 0.5,
     analysis_count INTEGER DEFAULT 1,
     properties_json TEXT NOT NULL,
+    kalman_state_json TEXT,
+    calibration_error_m REAL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -56,6 +58,20 @@ CREATE TABLE IF NOT EXISTS analysis_log (
 );
 """
 
+_MIGRATIONS = [
+    "ALTER TABLE features ADD COLUMN kalman_state_json TEXT",
+    "ALTER TABLE features ADD COLUMN calibration_error_m REAL",
+]
+
+
+def _apply_migrations(con: sqlite3.Connection) -> None:
+    """Add new columns to existing databases without dropping data."""
+    for stmt in _MIGRATIONS:
+        try:
+            con.execute(stmt)
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
 
 def _ensure_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -68,6 +84,7 @@ def _conn() -> Generator[sqlite3.Connection, None, None]:
     con.row_factory = sqlite3.Row
     try:
         con.executescript(_SCHEMA)
+        _apply_migrations(con)
         yield con
         con.commit()
     finally:
@@ -283,3 +300,116 @@ def update_feature_kind(feature_id: str, kind: str) -> bool:
                 (kind, now, feature_id),
             )
         return con.execute("SELECT changes()").fetchone()[0] > 0 or kind == "dismissed"
+
+
+def update_tile_status(tile_id: str, status: str, feature_count: int | None = None) -> None:
+    """Update a coverage tile's status (e.g. seeded → analyzed)."""
+    now = datetime.now(timezone.utc).isoformat()
+    with _conn() as con:
+        analyzed_at = now if status == "analyzed" else None
+        seeded_at = now if status == "seeded" else None
+        if feature_count is not None:
+            con.execute(
+                """UPDATE coverage_tiles
+                   SET status=?, feature_count=?,
+                   seeded_at=COALESCE(?, seeded_at),
+                   analyzed_at=COALESCE(?, analyzed_at)
+                   WHERE tile_id=?""",
+                (status, feature_count, seeded_at, analyzed_at, tile_id),
+            )
+        else:
+            con.execute(
+                """UPDATE coverage_tiles
+                   SET status=?,
+                   seeded_at=COALESCE(?, seeded_at),
+                   analyzed_at=COALESCE(?, analyzed_at)
+                   WHERE tile_id=?""",
+                (status, seeded_at, analyzed_at, tile_id),
+            )
+
+
+def get_kalman_state(feature_id: str) -> str | None:
+    """Return serialised Kalman state JSON for a feature, or None."""
+    with _conn() as con:
+        row = con.execute(
+            "SELECT kalman_state_json FROM features WHERE id=?", (feature_id,)
+        ).fetchone()
+    return row["kalman_state_json"] if row else None
+
+
+def set_kalman_state(feature_id: str, state_json: str) -> None:
+    """Persist Kalman state JSON for a feature."""
+    now = datetime.now(timezone.utc).isoformat()
+    with _conn() as con:
+        con.execute(
+            "UPDATE features SET kalman_state_json=?, updated_at=? WHERE id=?",
+            (state_json, now, feature_id),
+        )
+
+
+def record_position_error(feature_id: str, error_m: float) -> None:
+    """EMA-blend a confirmed position error into calibration_error_m."""
+    with _conn() as con:
+        row = con.execute(
+            "SELECT calibration_error_m FROM features WHERE id=?", (feature_id,)
+        ).fetchone()
+        if row and row["calibration_error_m"] is not None:
+            blended = row["calibration_error_m"] + (error_m - row["calibration_error_m"]) * 0.4
+        else:
+            blended = error_m
+        con.execute(
+            "UPDATE features SET calibration_error_m=? WHERE id=?",
+            (round(blended, 1), feature_id),
+        )
+
+
+def get_calibration_stats() -> dict[str, Any]:
+    """Return mean / median position error across confirmed features."""
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT calibration_error_m FROM features WHERE calibration_error_m IS NOT NULL"
+        ).fetchall()
+    errors = [r["calibration_error_m"] for r in rows]
+    if not errors:
+        return {"count": 0, "mean_error_m": None, "median_error_m": None}
+    errors.sort()
+    n = len(errors)
+    mean_err = sum(errors) / n
+    median_err = errors[n // 2] if n % 2 else (errors[n // 2 - 1] + errors[n // 2]) / 2
+    return {
+        "count": n,
+        "mean_error_m": round(mean_err, 1),
+        "median_error_m": round(median_err, 1),
+        "min_error_m": round(errors[0], 1),
+        "max_error_m": round(errors[-1], 1),
+    }
+
+
+def get_uncertain_features(limit: int = 10) -> list[dict[str, Any]]:
+    """Return features most in need of confirmation.
+
+    Ranks by lowest (confidence / analysis_count) ratio among speculative
+    features that have ≥2 observations — the highest-observed, lowest-confidence
+    ones are most informative to confirm or dismiss.
+    """
+    with _conn() as con:
+        rows = con.execute(
+            """SELECT * FROM features
+               WHERE kind='speculative' AND analysis_count >= 2
+               ORDER BY (confidence / analysis_count) ASC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    result = []
+    for row in rows:
+        props = json.loads(row["properties_json"])
+        props["id"] = row["id"]
+        props["kind"] = row["kind"]
+        props["confidence"] = row["confidence"]
+        props["analysis_count"] = row["analysis_count"]
+        result.append({
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [row["lon"], row["lat"]]},
+            "properties": props,
+        })
+    return result

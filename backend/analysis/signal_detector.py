@@ -165,11 +165,14 @@ def _parse_detections(raw: str) -> tuple[list[SignalDetection], str]:
 def _python_local_detections(
     samples: list[dict[str, Any]], operator_lat: float, operator_lon: float
 ) -> DetectionResult:
-    """Fallback to rule-based detection when no LLM is available."""
-    from backend.ml.triangulation_pipeline import TelemetrySample, parse_samples, solve_weighted_least_squares
-    from backend.datasources.spectrum_allocations import allocations_for_freq
+    """Rule-based detection using real range+bearing math (no LLM required)."""
+    import math as _math
+    from backend.analysis.waterfall_analyzer import analyze_psd
+    from backend.analysis.range_estimator import estimate_range_km
+    from backend.analysis.bearing_tracker import estimate_bearing
 
     t0 = time.monotonic()
+
     # Group samples by band
     bands: dict[str, list[dict]] = {}
     for s in samples:
@@ -181,30 +184,100 @@ def _python_local_detections(
     for band, band_samples in bands.items():
         if len(band_samples) < 2:
             continue
-        # Estimate mean bearing
-        bearings = [s.get("bearing_deg", 0.0) for s in band_samples if s.get("bearing_deg") is not None]
-        avg_bearing = sum(bearings) / len(bearings) if bearings else None
+
         avg_rssi = sum(s.get("rssi_dbm", -100) for s in band_samples) / len(band_samples)
         avg_snr = sum(s.get("snr_db", 0) for s in band_samples) / len(band_samples)
+
+        # Determine center frequency in MHz
+        freq_hz = next(
+            (s.get("frequency_hz") or s.get("freq_hz") for s in band_samples if s.get("frequency_hz") or s.get("freq_hz")),
+            None,
+        )
+        freq_mhz: float
+        if freq_hz:
+            freq_mhz = float(freq_hz) / 1e6
+        else:
+            freq_mhz = next(
+                (float(s.get("frequency_mhz", 0)) for s in band_samples if s.get("frequency_mhz")),
+                100.0,
+            )
+
+        avg_bw = sum(s.get("bandwidth_hz", 200_000) for s in band_samples) / len(band_samples)
+
+        # Waterfall analysis: extract spectral peaks from any sample with PSD bins
+        spectral_notes = ""
+        for s in band_samples:
+            psd = s.get("psd_bins_db") or s.get("spectral", {}).get("psd_bins_db") if isinstance(s.get("spectral"), dict) else None
+            sr = s.get("sample_rate_hz", 2_400_000.0) or 2_400_000.0
+            cf = freq_hz or (freq_mhz * 1e6)
+            if psd and len(psd) >= 4:
+                peaks = analyze_psd(psd, cf, sr)
+                if peaks:
+                    hints = list({p.modulation_hint for p in peaks})
+                    spectral_notes = f"; peaks={len(peaks)}, hints={hints[:3]}"
+                    if not freq_hz:
+                        freq_mhz = peaks[0].center_freq_hz / 1e6
+                    avg_bw = peaks[0].bandwidth_3db_hz
+                break
+
+        # SNR-weighted circular bearing estimate
+        bearing_samples = [s for s in band_samples if s.get("bearing_deg") is not None]
+        est_bearing, bearing_sigma = estimate_bearing(bearing_samples, freq_mhz)
+        avg_bearing = est_bearing if bearing_samples else None
+
+        # RSSI→distance inversion
+        est_lat: float | None = None
+        est_lon: float | None = None
+        estimated_range_m: float = 2000.0
+        range_notes = ""
+
+        if avg_rssi > -140:
+            try:
+                dist_km, dist_unc_km = estimate_range_km(
+                    rssi_dbm=avg_rssi,
+                    freq_mhz=freq_mhz,
+                    snr_db=avg_snr,
+                    bandwidth_hz=avg_bw,
+                )
+                estimated_range_m = dist_km * 1000.0
+                range_notes = f"; range≈{dist_km:.1f}km±{dist_unc_km:.1f}km"
+            except Exception:
+                pass
+
+        # Dead-reckon position using bearing + estimated range
+        if avg_bearing is not None and operator_lat != 0.0:
+            R = 6_371_000.0
+            lat1 = _math.radians(operator_lat)
+            lon1 = _math.radians(operator_lon)
+            br = _math.radians(avg_bearing)
+            d_R = estimated_range_m / R
+            lat2 = _math.asin(_math.sin(lat1) * _math.cos(d_R) + _math.cos(lat1) * _math.sin(d_R) * _math.cos(br))
+            lon2 = lon1 + _math.atan2(
+                _math.sin(br) * _math.sin(d_R) * _math.cos(lat1),
+                _math.cos(d_R) - _math.sin(lat1) * _math.sin(lat2),
+            )
+            est_lat = round(_math.degrees(lat2), 6)
+            est_lon = round(_math.degrees(lon2), 6)
+
         confidence = min(1.0, max(0.1, (avg_snr + 20) / 80 * len(band_samples) / 5))
         sid += 1
         detections.append(SignalDetection(
             signal_id=f"sig_{sid:03d}",
             freq_band=band,
-            bearing_deg=round(avg_bearing, 1) if avg_bearing else None,
+            bearing_deg=round(avg_bearing, 1) if avg_bearing is not None else None,
             confidence=round(confidence, 3),
             antenna_type="unknown",
-            estimated_lat=None,
-            estimated_lon=None,
-            azimuth_deg=round(avg_bearing, 1) if avg_bearing else None,
+            estimated_lat=est_lat,
+            estimated_lon=est_lon,
+            azimuth_deg=round(avg_bearing, 1) if avg_bearing is not None else None,
             beamwidth_deg=None,
-            notes=f"rule-based: {len(band_samples)} obs, avg_snr={avg_snr:.1f}dB",
+            notes=f"rule-based: {len(band_samples)} obs, snr={avg_snr:.1f}dB, σ_bearing={bearing_sigma:.1f}°{range_notes}{spectral_notes}",
         ))
 
     ms = (time.monotonic() - t0) * 1000
     return DetectionResult(
         detections=detections,
-        summary=f"Rule-based analysis: {len(detections)} signal groups identified",
+        summary=f"Rule-based analysis: {len(detections)} signal groups with range+bearing math",
         raw_response="",
         processing_ms=round(ms, 1),
     )

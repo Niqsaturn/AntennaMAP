@@ -68,3 +68,11 @@ select option { background: #1a2030; }
 .confirm-row .btn-confirm { background: #22c55e; color: #fff; }
 .confirm-row .btn-dismiss { background: #ef4444; color: #fff; }
 .confirm-row button:hover { opacity: 0.85; }
+
+/* Amber ring around uncertain features — MapLibre renders this natively,
+   but CSS pulse can be added to panel badges */
+.badge-uncertain {
+  display: inline-block; padding: 1px 6px; border-radius: 9px;
+  background: #facc15; color: #1a2030; font-size: 10px; font-weight: 700;
+  margin-left: 4px; vertical-align: middle;
+}
