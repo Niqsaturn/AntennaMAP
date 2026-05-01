@@ -183,3 +183,25 @@ def predict_error(model: dict[str, Any], samples: list[TelemetrySample]) -> floa
 
 def parse_samples(payload: list[dict[str, Any]]) -> list[TelemetrySample]:
     return [TelemetrySample(**row) for row in payload]
+
+
+def estimate_bearing_uncertainty(
+    sample: TelemetrySample,
+    samples: list[TelemetrySample] | None = None,
+    sdr_type: str = "rtlsdr",
+) -> float:
+    """Return calibrated bearing uncertainty (σ_deg) for a triangulation sample.
+
+    Delegates to bearing_tracker.bearing_uncertainty_deg() with geometry quality
+    derived from the full sample set, giving the triangulation WLS weighting
+    physically-calibrated σ values instead of a raw SNR proxy.
+    """
+    from backend.analysis.bearing_tracker import bearing_uncertainty_deg
+    geom_quality = movement_geometry_quality(samples) if samples and len(samples) >= 3 else 0.5
+    return bearing_uncertainty_deg(
+        snr_db=sample.snr_db,
+        freq_mhz=sample.frequency_hz / 1e6,
+        bandwidth_hz=sample.bandwidth_hz,
+        sdr_type=sdr_type,
+        movement_geometry=geom_quality,
+    )

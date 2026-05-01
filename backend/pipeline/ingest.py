@@ -27,6 +27,8 @@ class TelemetrySample(BaseModel):
     lon: float = Field(ge=-180, le=180)
     region: str = Field(default="US", min_length=2, max_length=3)
     frequency_mhz: float = Field(default=2450.0, gt=0)
+    frequency_hz: float | None = Field(default=None, gt=0)
+    operator_id: str = Field(default="default", min_length=1)
 
 
 

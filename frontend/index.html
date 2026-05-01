@@ -9,6 +9,8 @@
 </head>
 <body>
   <div id="map"></div>
+
+  <!-- ── Left control panel ── -->
   <aside class="panel">
     <h1>AntennaMAP</h1>
     <p class="muted">RF metadata only · no payload decoding</p>
@@ -17,9 +19,11 @@
     <label><input id="infraToggle" type="checkbox" checked> Infrastructure</label>
     <label><input id="estToggle" type="checkbox" checked> Estimated emitters</label>
     <label><input id="spectToggle" type="checkbox" checked> Speculative arrays</label>
+    <label><input id="foxToggle" type="checkbox" checked> Fox hunt targets</label>
     <label><input id="rayToggle" type="checkbox" checked> Directional Rays</label>
     <label><input id="sectorToggle" type="checkbox" checked> Sector Polygons</label>
     <label><input id="confidenceToggle" type="checkbox" checked> Confidence Ellipses</label>
+    <label><input id="bearingRayToggle" type="checkbox" checked> Bearing Rays</label>
     <label><input id="coverageToggle" type="checkbox"> US Coverage Grid</label>
     <label><input id="satelliteToggle" type="checkbox"> Satellites</label>
 
@@ -67,6 +71,63 @@
 
     <div id="details" class="details">Click markers for metadata.</div>
   </aside>
+
+  <!-- ── Fox hunt panel ── -->
+  <aside class="fox-panel" id="foxPanel">
+    <div class="fox-panel-header">
+      <span class="fox-title">Fox Hunt</span>
+      <span id="foxStateBadge" class="fox-state-badge state-idle">IDLE</span>
+    </div>
+
+    <div class="section-header" style="margin-top:8px">SDR Nodes</div>
+    <div id="nodeList" class="node-list"></div>
+    <div class="btn-row" style="margin-top:6px">
+      <input id="nodeHost" type="text" placeholder="host:port" class="node-input" />
+      <button id="addNode" class="btn-secondary" style="flex:0 0 60px;font-size:12px">Add</button>
+    </div>
+    <button id="checkNodes" class="btn-secondary" style="width:100%;margin-top:4px;font-size:12px">Check Reachability</button>
+
+    <div class="section-header" style="margin-top:10px">Hunt Control</div>
+    <div class="fox-pos-row">
+      <input id="foxLat" type="number" step="0.0001" placeholder="Lat" class="fox-coord" />
+      <input id="foxLon" type="number" step="0.0001" placeholder="Lon" class="fox-coord" />
+    </div>
+    <div class="btn-row" style="margin-top:6px">
+      <button id="foxStart" class="btn-primary">▶ Start</button>
+      <button id="foxStop" class="btn-secondary">■ Stop</button>
+    </div>
+
+    <div id="foxTargetBox" class="fox-target-box" style="display:none">
+      <div class="fox-target-freq" id="foxTargetFreq">—</div>
+      <div class="fox-target-meta" id="foxTargetMeta">—</div>
+      <div class="fox-obs-count" id="foxObsCount">0 bearings · 0 RSSI</div>
+    </div>
+
+    <div class="section-header" style="margin-top:10px">Add Bearing</div>
+    <div class="fox-pos-row">
+      <input id="bearingDeg" type="number" min="0" max="360" step="0.5" placeholder="Bearing °" class="fox-coord" />
+      <input id="bearingSnr" type="number" min="-20" max="60" step="0.5" placeholder="SNR dB" class="fox-coord" />
+    </div>
+    <button id="addBearing" class="btn-primary" style="width:100%;margin-top:4px">Add Bearing</button>
+
+    <div class="section-header" style="margin-top:10px">Confirmed Targets</div>
+    <div id="confirmedList" class="confirmed-list"></div>
+
+    <!-- Waterfall -->
+    <div class="section-header collapsible" id="waterfallHeader" style="margin-top:10px">
+      Waterfall (0–30 MHz) ▾
+    </div>
+    <div id="waterfallContainer" class="waterfall-container">
+      <canvas id="waterfallCanvas" class="waterfall-canvas"></canvas>
+      <div id="waterfallFreqAxis" class="wf-freq-axis"></div>
+    </div>
+
+    <div class="section-header collapsible" id="peakListHeader" style="margin-top:6px">
+      Signal Peaks ▾
+    </div>
+    <div id="peakList" class="peak-list"></div>
+  </aside>
+
   <script src="https://unpkg.com/maplibre-gl@4.3.2/dist/maplibre-gl.js"></script>
   <script type="module" src="./main.js"></script>
 </body>

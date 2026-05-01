@@ -58,8 +58,12 @@ function asFeature(siteFeature, geometry, overlayType) {
 }
 
 function cutoffFromSlider() {
-  const idx = Math.floor((Number(timeRange.value) / 100) * (sortedTimes.length - 1));
-  return sortedTimes[idx] ?? sortedTimes[sortedTimes.length - 1];
+  if (!sortedTimes.length) return null;  // no timestamps → no filter
+  const idx = Math.min(
+    Math.floor((Number(timeRange.value) / 100) * (sortedTimes.length - 1)),
+    sortedTimes.length - 1
+  );
+  return sortedTimes[idx] ?? null;
 }
 
 const popupHtml = (p) => {
@@ -136,14 +140,20 @@ async function applyModelSelection(value) {
 // ── Main site + overlay source refresh ────────────────────────────────────
 async function refreshSource() {
   if (!sourcesInitialized) return;
-  const cutoff = cutoffFromSlider();
-  if (timeLabel) timeLabel.textContent = `Cutoff: ${cutoff ? cutoff.slice(0, 19).replace('T', ' ') : 'all'}`;
+  try {
+    const cutoff = cutoffFromSlider();
+    if (timeLabel) timeLabel.textContent = `Cutoff: ${cutoff ? cutoff.slice(0, 19).replace('T', ' ') : 'all'}`;
 
-  const data = await fetch(`/api/features?timestamp_lte=${encodeURIComponent(cutoff)}`).then((r) => r.json());
-  const visibleSites = data.features.filter((f) =>
-    (f.properties.kind === 'infrastructure' && infraToggle.checked) ||
-    (f.properties.kind === 'estimate' && estToggle.checked)
-  );
+    const url = cutoff
+      ? `/api/features?timestamp_lte=${encodeURIComponent(cutoff)}`
+      : '/api/features';
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    const visibleSites = (data.features || []).filter((f) =>
+      (f.properties.kind === 'infrastructure' && infraToggle?.checked) ||
+      (f.properties.kind === 'estimate' && estToggle?.checked)
+    );
 
   const rays = [], sectors = [], confidence = [];
   visibleSites.forEach((f) => {
@@ -156,10 +166,13 @@ async function refreshSource() {
     if (ellipse) confidence.push(ellipse);
   });
 
-  map.getSource('sites').setData({ type: 'FeatureCollection', features: visibleSites });
-  map.getSource('rays').setData({ type: 'FeatureCollection', features: rayToggle.checked ? rays : [] });
-  map.getSource('sectors').setData({ type: 'FeatureCollection', features: sectorToggle.checked ? sectors : [] });
-  map.getSource('confidence').setData({ type: 'FeatureCollection', features: confidenceToggle.checked ? confidence : [] });
+    map.getSource('sites').setData({ type: 'FeatureCollection', features: visibleSites });
+    map.getSource('rays').setData({ type: 'FeatureCollection', features: rayToggle?.checked ? rays : [] });
+    map.getSource('sectors').setData({ type: 'FeatureCollection', features: sectorToggle?.checked ? sectors : [] });
+    map.getSource('confidence').setData({ type: 'FeatureCollection', features: confidenceToggle?.checked ? confidence : [] });
+  } catch (err) {
+    console.warn('refreshSource error:', err.message);
+  }
 }
 
 // ── Speculative layer ──────────────────────────────────────────────────────
@@ -466,3 +479,435 @@ map.on('load', async () => {
 if (modelDropdown) {
   modelDropdown.addEventListener('change', () => applyModelSelection(modelDropdown.value));
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── FOX HUNT + WATERFALL + SSE ────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── DOM refs (fox panel) ──────────────────────────────────────────────────
+const foxStateBadge  = document.getElementById('foxStateBadge');
+const foxTargetBox   = document.getElementById('foxTargetBox');
+const foxTargetFreq  = document.getElementById('foxTargetFreq');
+const foxTargetMeta  = document.getElementById('foxTargetMeta');
+const foxObsCount    = document.getElementById('foxObsCount');
+const foxStart       = document.getElementById('foxStart');
+const foxStop        = document.getElementById('foxStop');
+const foxLatEl       = document.getElementById('foxLat');
+const foxLonEl       = document.getElementById('foxLon');
+const addBearingBtn  = document.getElementById('addBearing');
+const bearingDegEl   = document.getElementById('bearingDeg');
+const bearingSnrEl   = document.getElementById('bearingSnr');
+const confirmedList  = document.getElementById('confirmedList');
+const nodeList       = document.getElementById('nodeList');
+const nodeHostEl     = document.getElementById('nodeHost');
+const addNodeBtn     = document.getElementById('addNode');
+const checkNodesBtn  = document.getElementById('checkNodes');
+const waterfallCanvas= document.getElementById('waterfallCanvas');
+const wfFreqAxis     = document.getElementById('waterfallFreqAxis');
+const peakList       = document.getElementById('peakList');
+const foxToggle      = document.getElementById('foxToggle');
+const bearingRayToggle = document.getElementById('bearingRayToggle');
+const waterfallHeader = document.getElementById('waterfallHeader');
+const waterfallContainer = document.getElementById('waterfallContainer');
+const peakListHeader = document.getElementById('peakListHeader');
+
+// ── Waterfall state ───────────────────────────────────────────────────────
+const WF_BINS = 1024;
+const WF_ROWS = 120;   // pixel height
+let _wfCtx = null;
+let _wfImageData = null;
+let _wfRowCount = 0;
+
+function _initWaterfall() {
+  if (!waterfallCanvas) return;
+  waterfallCanvas.width = WF_BINS;
+  waterfallCanvas.height = WF_ROWS;
+  _wfCtx = waterfallCanvas.getContext('2d');
+  _wfImageData = _wfCtx.createImageData(WF_BINS, WF_ROWS);
+  _wfImageData.data.fill(0);
+  // Freq axis labels (0 5 10 15 20 25 30 MHz)
+  if (wfFreqAxis) {
+    wfFreqAxis.innerHTML = [0,5,10,15,20,25,30].map((f) => `<span>${f}</span>`).join('');
+  }
+}
+
+// Map dB value to RGBA colour (dark blue → cyan → yellow → red)
+function _dbToRgba(db) {
+  // Normalise -127..−13 dBm → 0..1
+  const t = Math.max(0, Math.min(1, (db + 127) / 114));
+  let r, g, b;
+  if (t < 0.25) {          // dark navy → blue
+    const s = t / 0.25;
+    r = 0; g = Math.round(s * 50); b = Math.round(50 + s * 150);
+  } else if (t < 0.5) {   // blue → cyan
+    const s = (t - 0.25) / 0.25;
+    r = 0; g = Math.round(50 + s * 205); b = 200;
+  } else if (t < 0.75) {  // cyan → yellow
+    const s = (t - 0.5) / 0.25;
+    r = Math.round(s * 255); g = 255; b = Math.round(200 * (1 - s));
+  } else {                 // yellow → red
+    const s = (t - 0.75) / 0.25;
+    r = 255; g = Math.round(255 * (1 - s)); b = 0;
+  }
+  return [r, g, b];
+}
+
+function _pushWaterfallRow(bins) {
+  if (!_wfCtx || !_wfImageData || bins.length < WF_BINS) return;
+  // Scroll existing rows up by 1 (shift pixel data up by WF_BINS*4 bytes)
+  const data = _wfImageData.data;
+  data.copyWithin(0, WF_BINS * 4);
+  // Write new row at bottom
+  const baseIdx = (WF_ROWS - 1) * WF_BINS * 4;
+  for (let i = 0; i < WF_BINS; i++) {
+    const [r, g, b] = _dbToRgba(bins[i]);
+    const idx = baseIdx + i * 4;
+    data[idx] = r; data[idx + 1] = g; data[idx + 2] = b; data[idx + 3] = 255;
+  }
+  _wfCtx.putImageData(_wfImageData, 0, 0);
+  _wfRowCount++;
+}
+
+// ── Map sources & layers for fox hunt ────────────────────────────────────
+let _foxSourcesAdded = false;
+
+function _addFoxSources() {
+  if (_foxSourcesAdded || !map.getStyle()) return;
+  _foxSourcesAdded = true;
+  const empty = { type: 'FeatureCollection', features: [] };
+  map.addSource('fox-targets',  { type: 'geojson', data: empty });
+  map.addSource('fox-ellipses', { type: 'geojson', data: empty });
+  map.addSource('fox-bearings', { type: 'geojson', data: empty });
+
+  // Uncertainty ellipses (fill + outline)
+  map.addLayer({ id: 'fox-ellipse-fill', type: 'fill', source: 'fox-ellipses',
+    paint: { 'fill-color': '#4ade80', 'fill-opacity': 0.1 } });
+  map.addLayer({ id: 'fox-ellipse-outline', type: 'line', source: 'fox-ellipses',
+    paint: { 'line-color': '#4ade80', 'line-width': 1.5, 'line-dasharray': [3, 2] } });
+
+  // Bearing rays from observer positions
+  map.addLayer({ id: 'fox-bearing-rays', type: 'line', source: 'fox-bearings',
+    paint: { 'line-color': '#fbbf24', 'line-width': 1.5, 'line-opacity': 0.7 } });
+
+  // Confirmed target circles
+  map.addLayer({ id: 'fox-target-layer', type: 'circle', source: 'fox-targets',
+    paint: {
+      'circle-radius': 11,
+      'circle-color': '#4ade80',
+      'circle-stroke-width': 2.5,
+      'circle-stroke-color': '#fff',
+    } });
+  map.addLayer({ id: 'fox-target-label', type: 'symbol', source: 'fox-targets',
+    layout: { 'text-field': ['get', 'freq_label'], 'text-size': 9, 'text-offset': [0, 1.6] },
+    paint: { 'text-color': '#4ade80', 'text-halo-color': '#000', 'text-halo-width': 1 } });
+
+  // Click handler for fox targets
+  map.on('click', 'fox-target-layer', (e) => {
+    const f = e.features?.[0];
+    if (!f || !details) return;
+    const p = f.properties;
+    const methods = typeof p.methods === 'string' ? JSON.parse(p.methods) : (p.methods || []);
+    details.innerHTML = `<strong>${p.name}</strong><br>` +
+      `Freq: ${p.freq_mhz} MHz<br>Band: ${p.band_label}<br>` +
+      `Confidence: ${(p.confidence * 100).toFixed(0)}%<br>` +
+      `Uncertainty: ±${p.uncertainty_m?.toFixed(0)} m<br>` +
+      `Methods: ${methods.join(', ')}<br>` +
+      `Bearings: ${p.bearing_obs_count} · RSSI: ${p.rssi_obs_count}`;
+  });
+  map.on('mouseenter', 'fox-target-layer', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'fox-target-layer', () => { map.getCanvas().style.cursor = ''; });
+}
+
+// Live bearing rays accumulator
+const _bearingObs = [];   // {lat, lon, bearing_deg}
+
+function _updateBearingRaySource() {
+  const src = map.getSource('fox-bearings');
+  if (!src) return;
+  // For each observation draw a 30 km line in the bearing direction
+  const RAY_M = 30_000;
+  const lines = _bearingObs.map((o) => {
+    const brRad = (o.bearing_deg * Math.PI) / 180;
+    const dR = RAY_M / 6_371_000;
+    const lat1 = (o.lat * Math.PI) / 180;
+    const lon1 = (o.lon * Math.PI) / 180;
+    const lat2 = Math.asin(Math.sin(lat1) * Math.cos(dR) + Math.cos(lat1) * Math.sin(dR) * Math.cos(brRad));
+    const lon2 = lon1 + Math.atan2(Math.sin(brRad) * Math.sin(dR) * Math.cos(lat1),
+                                    Math.cos(dR) - Math.sin(lat1) * Math.sin(lat2));
+    return {
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: [
+        [o.lon, o.lat],
+        [(lon2 * 180) / Math.PI, (lat2 * 180) / Math.PI],
+      ]},
+      properties: { bearing_deg: o.bearing_deg },
+    };
+  });
+  src.setData({ type: 'FeatureCollection', features: lines });
+}
+
+// ── Fox hunt state badge ──────────────────────────────────────────────────
+const STATE_CLASSES = {
+  IDLE: 'state-idle', SCANNING: 'state-scanning', ACQUIRING: 'state-acquiring',
+  COLLECTING: 'state-collecting', SOLVING: 'state-solving', CONFIRMED: 'state-confirmed',
+};
+
+function _setFoxState(state) {
+  if (!foxStateBadge) return;
+  foxStateBadge.textContent = state;
+  foxStateBadge.className = `fox-state-badge ${STATE_CLASSES[state] || 'state-idle'}`;
+}
+
+// ── SSE event handler ─────────────────────────────────────────────────────
+let _sseConnected = false;
+let _sseSource = null;
+
+function _connectSSE() {
+  if (_sseConnected) return;
+  _sseSource = new EventSource('/api/events');
+  _sseSource.onopen = () => { _sseConnected = true; };
+  _sseSource.onerror = () => {
+    _sseConnected = false;
+    setTimeout(_connectSSE, 5000);
+  };
+  _sseSource.onmessage = (e) => {
+    let ev;
+    try { ev = JSON.parse(e.data); } catch { return; }
+    _handleSseEvent(ev);
+  };
+}
+
+function _handleSseEvent(ev) {
+  switch (ev.type) {
+    case 'fox_state':
+      _setFoxState(ev.state);
+      if (ev.state === 'IDLE' || ev.state === 'SCANNING') {
+        if (foxTargetBox) foxTargetBox.style.display = 'none';
+      }
+      break;
+
+    case 'scan_results':
+      _renderPeakList(ev.peaks || []);
+      break;
+
+    case 'rssi_acquired':
+      // Update node RSSI display
+      break;
+
+    case 'bearing_added':
+      _bearingObs.push({ lat: ev.lat, lon: ev.lon, bearing_deg: ev.bearing_deg });
+      _updateBearingRaySource();
+      if (foxObsCount)
+        foxObsCount.textContent = `${ev.total_bearings} bearing(s) logged`;
+      break;
+
+    case 'estimate_updated': {
+      // Update live ellipse on map
+      const src = map.getSource('fox-ellipses');
+      if (src && ev.lat && ev.lon) {
+        const coords = _buildEllipseCoords(ev.lat, ev.lon, ev.ellipse_major_m || ev.uncertainty_m || 500, ev.ellipse_minor_m || ev.uncertainty_m * 0.6 || 300);
+        src.setData({ type: 'FeatureCollection', features: [{
+          type: 'Feature',
+          geometry: { type: 'Polygon', coordinates: [coords] },
+          properties: { confidence: ev.confidence },
+        }]});
+      }
+      break;
+    }
+
+    case 'target_pinned': {
+      // Render confirmed target on map
+      const src = map.getSource('fox-targets');
+      if (src && ev.feature) {
+        const existing = src._data?.features || [];
+        ev.feature.properties.freq_label = `${(ev.freq_hz / 1e6).toFixed(2)} MHz`;
+        existing.push(ev.feature);
+        src.setData({ type: 'FeatureCollection', features: existing });
+      }
+      // Add to confirmed list panel
+      _addConfirmedItem(ev);
+      // Clear bearing rays for next target
+      _bearingObs.length = 0;
+      _updateBearingRaySource();
+      break;
+    }
+
+    case 'sdr_frame':
+      if (ev.bins_db && ev.bins_db.length >= WF_BINS) {
+        _pushWaterfallRow(ev.bins_db);
+      }
+      break;
+  }
+}
+
+// ── Ellipse polygon helper ────────────────────────────────────────────────
+function _buildEllipseCoords(lat, lon, majorM, minorM, angleDeg = 0, steps = 48) {
+  const cosA = Math.cos((angleDeg * Math.PI) / 180);
+  const sinA = Math.sin((angleDeg * Math.PI) / 180);
+  const cosLat = Math.cos((lat * Math.PI) / 180);
+  const coords = [];
+  for (let i = 0; i <= steps; i++) {
+    const theta = (2 * Math.PI * i) / steps;
+    const x = majorM * Math.cos(theta);
+    const y = minorM * Math.sin(theta);
+    const xe = x * cosA - y * sinA;
+    const yn = x * sinA + y * cosA;
+    coords.push([
+      lon + xe / (111_320 * Math.max(cosLat, 0.001)),
+      lat + yn / 111_320,
+    ]);
+  }
+  return coords;
+}
+
+// ── Confirmed target panel item ───────────────────────────────────────────
+function _addConfirmedItem(ev) {
+  if (!confirmedList) return;
+  const item = document.createElement('div');
+  item.className = 'confirmed-item';
+  const freqMhz = (ev.freq_hz / 1e6).toFixed(3);
+  const conf = ev.confidence != null ? `${(ev.confidence * 100).toFixed(0)}%` : '—';
+  item.innerHTML = `<span class="confirmed-freq">${freqMhz} MHz</span><span class="confirmed-conf">${conf}</span>`;
+  item.onclick = () => {
+    if (ev.feature?.geometry?.coordinates) {
+      map.flyTo({ center: ev.feature.geometry.coordinates, zoom: 14 });
+    }
+  };
+  confirmedList.insertBefore(item, confirmedList.firstChild);
+}
+
+// ── Peak list renderer ────────────────────────────────────────────────────
+function _renderPeakList(peaks) {
+  if (!peakList) return;
+  peakList.innerHTML = peaks.slice(0, 20).map((p) => {
+    const mhz = (p.freq_hz / 1e6).toFixed(3);
+    return `<div class="peak-item" onclick="_tuneToFreq(${p.freq_hz})">
+      <span class="peak-freq">${mhz} MHz</span>
+      <span class="peak-snr">${p.snr_db?.toFixed(1)} dB</span>
+      <span class="peak-mod">${p.modulation_hint || ''}</span>
+    </div>`;
+  }).join('');
+}
+
+window._tuneToFreq = function(freqHz) {
+  if (bearingDegEl) bearingDegEl.dataset.freq = freqHz;
+  // Pan map to nearest confirmed feature at that frequency if one exists
+};
+
+// ── Node list renderer ────────────────────────────────────────────────────
+async function _refreshNodeList() {
+  const data = await fetch('/api/sdr/nodes').then((r) => r.json()).catch(() => ({ nodes: [] }));
+  const nodes = data.nodes || [];
+  if (!nodeList) return;
+  nodeList.innerHTML = nodes.map((n) =>
+    `<div class="node-item">
+       <span class="node-dot unknown"></span>
+       <span class="node-label">${n.host}:${n.port}${n.description ? ' — ' + n.description : ''}</span>
+     </div>`
+  ).join('') || '<div style="color:#475569;font-size:11px;padding:4px">No nodes configured</div>';
+}
+
+// ── Fox hunt button handlers ──────────────────────────────────────────────
+foxStart?.addEventListener('click', async () => {
+  const lat = parseFloat(foxLatEl?.value || '0');
+  const lon = parseFloat(foxLonEl?.value || '0');
+  await fetch('/api/foxhunt/auto/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lat, lon }),
+  }).catch(() => {});
+  _setFoxState('SCANNING');
+  if (foxTargetBox) foxTargetBox.style.display = 'block';
+});
+
+foxStop?.addEventListener('click', async () => {
+  await fetch('/api/foxhunt/auto/stop', { method: 'POST' }).catch(() => {});
+  _setFoxState('IDLE');
+});
+
+addBearingBtn?.addEventListener('click', async () => {
+  const bearing = parseFloat(bearingDegEl?.value);
+  const snr = parseFloat(bearingSnrEl?.value || '10');
+  if (isNaN(bearing)) return;
+  const lat = parseFloat(foxLatEl?.value || '0');
+  const lon = parseFloat(foxLonEl?.value || '0');
+  await fetch('/api/foxhunt/auto/observe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bearing_deg: bearing, snr_db: snr, lat, lon }),
+  }).catch(() => {});
+});
+
+addNodeBtn?.addEventListener('click', async () => {
+  const raw = nodeHostEl?.value?.trim();
+  if (!raw) return;
+  const [host, portStr] = raw.split(':');
+  const port = parseInt(portStr || '8073', 10);
+  await fetch('/api/sdr/nodes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ host, port }),
+  }).catch(() => {});
+  if (nodeHostEl) nodeHostEl.value = '';
+  await _refreshNodeList();
+});
+
+checkNodesBtn?.addEventListener('click', async () => {
+  if (checkNodesBtn) checkNodesBtn.textContent = 'Checking…';
+  const data = await fetch('/api/sdr/nodes/check').then((r) => r.json()).catch(() => ({ statuses: [] }));
+  const items = nodeList?.querySelectorAll('.node-item') || [];
+  (data.statuses || []).forEach((s, i) => {
+    const dot = items[i]?.querySelector('.node-dot');
+    if (dot) {
+      dot.className = `node-dot ${s.reachable ? 'ok' : 'err'}`;
+    }
+  });
+  if (checkNodesBtn) checkNodesBtn.textContent = 'Check Reachability';
+});
+
+// Toggle visibility of fox layers
+foxToggle?.addEventListener('change', () => {
+  const vis = foxToggle.checked ? 'visible' : 'none';
+  ['fox-target-layer', 'fox-target-label', 'fox-ellipse-fill',
+   'fox-ellipse-outline'].forEach((l) => {
+    try { map.setLayoutProperty(l, 'visibility', vis); } catch {}
+  });
+});
+
+bearingRayToggle?.addEventListener('change', () => {
+  const vis = bearingRayToggle.checked ? 'visible' : 'none';
+  try { map.setLayoutProperty('fox-bearing-rays', 'visibility', vis); } catch {}
+});
+
+// Collapsible sections in fox panel
+waterfallHeader?.addEventListener('click', () => {
+  waterfallContainer?.classList.toggle('collapsed');
+});
+peakListHeader?.addEventListener('click', () => {
+  peakList?.classList.toggle('collapsed');
+});
+
+// Poll fox hunt status to sync UI when SSE is unavailable
+async function _refreshFoxStatus() {
+  try {
+    const s = await fetch('/api/foxhunt/auto/status').then((r) => r.json());
+    _setFoxState(s.state || 'IDLE');
+    if (s.target && foxTargetBox) {
+      foxTargetBox.style.display = 'block';
+      if (foxTargetFreq) foxTargetFreq.textContent = `${(s.target.freq_hz / 1e6).toFixed(3)} MHz`;
+      if (foxTargetMeta) foxTargetMeta.textContent = `${s.target.band_label} · ${s.target.modulation_hint}`;
+      if (foxObsCount) foxObsCount.textContent = `${s.target.bearing_obs_count} bearing(s) · ${s.target.rssi_obs_count} RSSI`;
+    }
+  } catch {}
+}
+
+// ── Map load hook — add fox sources after map is ready ─────────────────────
+map.on('load', () => {
+  _addFoxSources();
+  _initWaterfall();
+  _refreshNodeList();
+  _refreshFoxStatus();
+  _connectSSE();
+  setInterval(_refreshFoxStatus, 15000);
+  setInterval(_refreshNodeList, 60000);
+});
