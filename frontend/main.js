@@ -551,6 +551,7 @@ const rediscoverBtn       = document.getElementById('rediscoverNodes');
 const nodeDiscoveryStatus = document.getElementById('nodeDiscoveryStatus');
 const waterfallCanvas= document.getElementById('waterfallCanvas');
 const wfFreqAxis     = document.getElementById('waterfallFreqAxis');
+const waterfallStatus = document.getElementById('waterfallStatus');
 const peakList       = document.getElementById('peakList');
 const foxToggle      = document.getElementById('foxToggle');
 const bearingRayToggle = document.getElementById('bearingRayToggle');
@@ -564,17 +565,52 @@ const WF_ROWS = 120;   // pixel height
 let _wfCtx = null;
 let _wfImageData = null;
 let _wfRowCount = 0;
+let _wfBins = WF_BINS;
+let _wfCenterFreqHz = null;
+let _wfBandwidthHz = null;
+let _wfLastFrameAt = 0;
+let _wfDecodeMismatchCount = 0;
 
 function _initWaterfall() {
   if (!waterfallCanvas) return;
-  waterfallCanvas.width = WF_BINS;
+  waterfallCanvas.width = _wfBins;
   waterfallCanvas.height = WF_ROWS;
   _wfCtx = waterfallCanvas.getContext('2d');
-  _wfImageData = _wfCtx.createImageData(WF_BINS, WF_ROWS);
+  _wfImageData = _wfCtx.createImageData(_wfBins, WF_ROWS);
   _wfImageData.data.fill(0);
-  // Freq axis labels (0 5 10 15 20 25 30 MHz)
-  if (wfFreqAxis) {
+  _renderWaterfallFreqAxis();
+  _setWaterfallStatus('connected');
+}
+
+function _renderWaterfallFreqAxis() {
+  if (!wfFreqAxis) return;
+  if (!_wfCenterFreqHz || !_wfBandwidthHz) {
     wfFreqAxis.innerHTML = [0,5,10,15,20,25,30].map((f) => `<span>${f}</span>`).join('');
+    return;
+  }
+  const steps = 7;
+  const low = _wfCenterFreqHz - (_wfBandwidthHz / 2);
+  const binBwHz = _wfBandwidthHz / Math.max(1, _wfBins);
+  wfFreqAxis.innerHTML = Array.from({ length: steps }, (_, i) => {
+    const frac = i / (steps - 1);
+    const bin = frac * (_wfBins - 1);
+    const hz = low + (bin * binBwHz);
+    return `<span>${(hz / 1e6).toFixed(3)}</span>`;
+  }).join('');
+}
+
+function _setWaterfallStatus(state, detail = '') {
+  if (!waterfallStatus) return;
+  waterfallStatus.className = 'waterfall-status';
+  if (state === 'receiving') {
+    waterfallStatus.classList.add('status-receiving');
+    waterfallStatus.textContent = detail || 'Receiving data';
+  } else if (state === 'mismatch') {
+    waterfallStatus.classList.add('status-mismatch');
+    waterfallStatus.textContent = detail || 'Decode/config mismatch';
+  } else {
+    waterfallStatus.classList.add('status-connected');
+    waterfallStatus.textContent = detail || 'Connected · waiting for data';
   }
 }
 
@@ -600,13 +636,13 @@ function _dbToRgba(db) {
 }
 
 function _pushWaterfallRow(bins) {
-  if (!_wfCtx || !_wfImageData || bins.length < WF_BINS) return;
+  if (!_wfCtx || !_wfImageData || bins.length < _wfBins) return;
   // Scroll existing rows up by 1 (shift pixel data up by WF_BINS*4 bytes)
   const data = _wfImageData.data;
-  data.copyWithin(0, WF_BINS * 4);
+  data.copyWithin(0, _wfBins * 4);
   // Write new row at bottom
-  const baseIdx = (WF_ROWS - 1) * WF_BINS * 4;
-  for (let i = 0; i < WF_BINS; i++) {
+  const baseIdx = (WF_ROWS - 1) * _wfBins * 4;
+  for (let i = 0; i < _wfBins; i++) {
     const [r, g, b] = _dbToRgba(bins[i]);
     const idx = baseIdx + i * 4;
     data[idx] = r; data[idx + 1] = g; data[idx + 2] = b; data[idx + 3] = 255;
@@ -795,13 +831,45 @@ function _handleSseEvent(ev) {
 
     case 'sdr_frame': {
       const bins = ev.bins || ev.bins_db;
-      if (bins && bins.length >= WF_BINS) {
-        _pushWaterfallRow(bins);
+      const centerHz = Number(ev.center_freq_hz);
+      const bwHz = Number(ev.bw_hz || ev.sample_rate_hz);
+      if (!Array.isArray(bins) || bins.length < 4) {
+        _wfDecodeMismatchCount += 1;
+        _setWaterfallStatus('mismatch', 'Decode/config mismatch: missing waterfall bins');
+        break;
+      }
+      if (!Number.isFinite(centerHz) || !Number.isFinite(bwHz) || bwHz <= 0) {
+        _wfDecodeMismatchCount += 1;
+        _setWaterfallStatus('mismatch', 'Decode/config mismatch: invalid center frequency/sample rate');
+        break;
+      }
+      if (_wfBins !== bins.length) {
+        _wfBins = bins.length;
+        _initWaterfall();
+      }
+      _wfCenterFreqHz = centerHz;
+      _wfBandwidthHz = bwHz;
+      _renderWaterfallFreqAxis();
+      _pushWaterfallRow(bins);
+      _wfLastFrameAt = Date.now();
+      _setWaterfallStatus('receiving', `Receiving data · ${_wfBins} bins · ${(centerHz/1e6).toFixed(3)} MHz center · ${(bwHz/1e3).toFixed(1)} kHz span`);
+      if (_wfDecodeMismatchCount > 0) {
+        _wfDecodeMismatchCount = 0;
       }
       break;
     }
   }
 }
+
+setInterval(() => {
+  if (!_sseConnected) {
+    _setWaterfallStatus('mismatch', 'Decode/config mismatch: SSE disconnected');
+    return;
+  }
+  if (_wfLastFrameAt === 0 || (Date.now() - _wfLastFrameAt) > 15000) {
+    _setWaterfallStatus('connected');
+  }
+}, 3000);
 
 // ── Ellipse polygon helper ────────────────────────────────────────────────
 function _buildEllipseCoords(lat, lon, majorM, minorM, angleDeg = 0, steps = 48) {
