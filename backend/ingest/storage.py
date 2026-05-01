@@ -15,8 +15,13 @@ def append_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
             handle.write("\n")
 
 
+import logging as _logging
+_storage_log = _logging.getLogger(__name__)
+
+
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
+        _storage_log.debug("read_jsonl: %s not found, starting fresh", path.name)
         return []
     rows: list[dict[str, Any]] = []
     for line in path.read_text(encoding="utf-8").splitlines():
