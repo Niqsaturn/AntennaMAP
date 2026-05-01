@@ -53,25 +53,29 @@ def _select_model(freq_mhz: float) -> str:
     if freq_mhz < 3.0:
         return "groundwave"
     if freq_mhz < 30.0:
-        return "two_ray"
+        return "hf_skywave"   # ionospheric sky-wave dominates HF
     if freq_mhz < 1000.0:
         return "hata_urban"
     return "fspl"
 
 
-def _forward_loss(freq_mhz: float, distance_km: float, model: str, tx_height_m: float) -> float:
-    """Compute path loss (dB) for the given model and distance.
+def _hf_skywave_loss_db(freq_mhz: float, distance_km: float) -> float:
+    """Simplified ITU-R P.533 HF sky-wave path loss.
 
-    path_loss_db() signature: (model, frequency_mhz, distance_km, tx_height_m)
+    PL = 32.44 + 20·log10(f_MHz) + 20·log10(d_km) + F_sky
+    F_sky ≈ 6·log10(max(d_km,1000)/1000) — extra absorption at long ground range
     """
+    d = max(distance_km, 1.0)
+    f_sky = 6.0 * math.log10(max(d, 1000.0) / 1000.0)
+    return 32.44 + 20 * math.log10(freq_mhz) + 20 * math.log10(d) + f_sky
+
+
+def _forward_loss(freq_mhz: float, distance_km: float, model: str, tx_height_m: float) -> float:
+    """Compute path loss (dB) for the given model and distance."""
     if model == "groundwave":
         return _groundwave_loss_db(freq_mhz, distance_km)
-    if model == "two_ray":
-        # Two-ray ground-reflection model: PL = 40·log₁₀(d) - 20·log₁₀(h_tx·h_rx)
-        h_rx = 1.5
-        d_m = max(distance_km * 1000, 1.0)
-        pl = 40 * math.log10(d_m) - 20 * math.log10(max(tx_height_m, 1.0) * h_rx)
-        return max(pl, 0.0)
+    if model == "hf_skywave":
+        return _hf_skywave_loss_db(freq_mhz, distance_km)
     if model in ("hata_urban", "hata_suburban"):
         return path_loss_db(model, freq_mhz, distance_km, tx_height_m)
     # fspl + atmospheric absorption for SHF/EHF
