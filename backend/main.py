@@ -29,13 +29,31 @@ from backend.ml.triangulation_pipeline import (
     solve_weighted_least_squares,
     train_error_model,
 )
+from backend.analysis.signal_detector import detect_signals
+from backend.analysis.array_speculator import speculate_from_detections
+from backend.analysis.us_coverage import advance_queue as coverage_advance_queue, next_tiles_to_process
+from backend.analysis.examples import (
+    add_confirmed_example,
+    get_recent_examples,
+    format_examples_for_prompt,
+)
 from backend.datasources.fcc import search_licenses_near
 from backend.datasources.cell_towers import search_towers_near
 from backend.datasources.spectrum_allocations import (
     allocations_for_freq,
     allocations_in_range,
     known_signals_for_band,
+    full_spectrum_summary,
 )
+from backend.datasources.satellites import (
+    fetch_tle_group,
+    tle_to_position,
+    satellite_ground_track,
+    satellite_footprint,
+    uplink_downlink_arc,
+    build_relay_map,
+)
+from backend.datasources.earth_stations import EARTH_STATIONS, get_stations_near
 from backend.pipeline.compliance import COMPLIANCE_POLICY
 from backend.pipeline.ingest import evaluate_retraining_triggers, summarize_telemetry
 from backend.rf.array_calculator import (
@@ -49,8 +67,25 @@ from backend.rf.array_calculator import (
     link_budget,
     bearing_from_phase_difference,
 )
-from backend.rf_propagation import ModelName, generate_snapshot
+from backend.rf_propagation import (
+    ModelName,
+    generate_snapshot,
+    em_field_grid,
+    ionospheric_skip_distance_km,
+    atmospheric_absorption_db,
+)
 from backend.sdr.computed_spectrum import computed_psd, psd_to_metrics
+from backend.storage.map_store import (
+    upsert_feature,
+    features_in_bounds,
+    get_all_features,
+    get_coverage_grid,
+    get_coverage_progress,
+    log_analysis,
+    get_analysis_log,
+    update_feature_kind,
+    upsert_tile,
+)
 from backend.training.trainer import train_single_triangulation_baseline
 from backend.training.triangulation_baseline import estimate_single_operator
 
@@ -144,6 +179,29 @@ class AIAnalyzeRequest(BaseModel):
     prompt: str = ""
     spectrum_data: dict = {}
     context: str = ""
+
+
+class AnalysisRunRequest(BaseModel):
+    provider: str = "ollama"
+    model: str = ""
+    lat: float | None = None
+    lon: float | None = None
+    limit_samples: int = 50
+
+
+class ConfirmDetectionRequest(BaseModel):
+    feature_id: str
+    confirmed: bool
+    true_lat: float | None = None
+    true_lon: float | None = None
+
+
+class UplinkPathRequest(BaseModel):
+    ground_lat: float
+    ground_lon: float
+    norad_id: str = ""
+    sat_name: str = ""
+    sat_group: str = "geo"
 
 
 def load_sdr_capabilities() -> dict:
@@ -266,6 +324,13 @@ class LoopManager:
 
         try:
             ingest_pipeline(model_version=cfg["model"])
+            # Run AI analysis cycle when a model is selected
+            if cfg.get("provider") in ("ollama", "python_local"):
+                try:
+                    _run_analysis_cycle(cfg)
+                except Exception as exc:
+                    with self._lock:
+                        self._record_error(cfg["provider"], "analysis_cycle", exc)
             with self._lock:
                 self._last_successful_run_at = datetime.now(tz=timezone.utc).isoformat()
         except Exception as exc:
@@ -325,6 +390,69 @@ class LoopManager:
 
 
 loop_manager = LoopManager()
+
+
+def _run_analysis_cycle(cfg: dict) -> None:
+    """AI-powered analysis: detect signals, speculate arrays, advance US coverage."""
+    import asyncio
+    import time as _time
+    t0 = _time.monotonic()
+
+    samples = read_jsonl(INGEST_LOG_FILE)[-cfg.get("limit_samples", 50):]
+    if not samples:
+        return
+
+    # Operator position from most recent telemetry with GPS
+    op_lat = next((s["lat"] for s in reversed(samples) if s.get("lat")), 0.0)
+    op_lon = next((s["lon"] for s in reversed(samples) if s.get("lon")), 0.0)
+
+    # FCC context (synchronous wrapper via asyncio)
+    try:
+        fcc_context = asyncio.run(search_licenses_near(op_lat, op_lon, radius_km=25.0, limit=20))
+    except Exception:
+        fcc_context = []
+
+    # Few-shot examples for Ollama
+    examples = get_recent_examples(3)
+    examples_text = format_examples_for_prompt(examples)
+
+    # Detect signals with selected model
+    model_config = {"provider": cfg.get("provider", "local"), "model": cfg.get("model", "")}
+    result = detect_signals(
+        samples, model_config, fcc_context, examples_text, op_lat, op_lon
+    )
+
+    # Generate speculative features
+    speculative = []
+    if result.detections:
+        speculative = speculate_from_detections(result.detections, op_lat, op_lon)
+        for feat in speculative:
+            try:
+                upsert_feature(feat)
+            except Exception:
+                pass
+
+    # Advance US coverage queue (seed next tiles)
+    try:
+        asyncio.run(coverage_advance_queue(op_lat, op_lon, n=2))
+    except Exception:
+        pass
+
+    # Log analysis result
+    ms = (_time.monotonic() - t0) * 1000
+    try:
+        log_analysis(
+            model=cfg.get("model", ""),
+            provider=cfg.get("provider", "local"),
+            input_summary=f"{len(samples)} samples, lat={op_lat:.3f}, lon={op_lon:.3f}",
+            detections_count=len(result.detections),
+            detections_json=json.dumps([d.__dict__ if hasattr(d, '__dict__') else str(d)
+                                        for d in result.detections], default=str),
+            raw_response=result.raw_response[:2000] if result.raw_response else "",
+            processing_ms=round(ms, 1),
+        )
+    except Exception:
+        pass
 
 
 def load_geojson() -> dict:
@@ -780,6 +908,311 @@ def propagation_snapshot(site_id: str, model: ModelName = "fspl") -> dict:
         grid_resolution=41,
     )
     return {"site_id": site_id, "snapshot": snapshot}
+
+
+# ── Analysis Loop ─────────────────────────────────────────────────────────────
+
+@app.post("/api/analysis/run")
+async def analysis_run(body: AnalysisRunRequest) -> dict:
+    """Trigger an immediate AI analysis cycle with the specified model."""
+    import asyncio
+    import time as _time
+    t0 = _time.monotonic()
+
+    samples = read_jsonl(INGEST_LOG_FILE)[-(body.limit_samples):]
+    op_lat = body.lat or next((s.get("lat", 0.0) for s in reversed(samples) if s.get("lat")), 0.0)
+    op_lon = body.lon or next((s.get("lon", 0.0) for s in reversed(samples) if s.get("lon")), 0.0)
+
+    fcc_context = []
+    if op_lat or op_lon:
+        try:
+            fcc_context = await search_licenses_near(op_lat, op_lon, radius_km=25.0, limit=20)
+        except Exception:
+            pass
+
+    examples = get_recent_examples(3)
+    examples_text = format_examples_for_prompt(examples)
+    model_config = {"provider": body.provider, "model": body.model}
+
+    result = detect_signals(samples, model_config, fcc_context, examples_text, op_lat, op_lon)
+
+    speculative_features = []
+    if result.detections and (op_lat or op_lon):
+        speculative_features = speculate_from_detections(result.detections, op_lat, op_lon)
+        for feat in speculative_features:
+            try:
+                upsert_feature(feat)
+            except Exception:
+                pass
+
+    ms = (_time.monotonic() - t0) * 1000
+    try:
+        log_analysis(
+            model=body.model,
+            provider=body.provider,
+            input_summary=f"{len(samples)} samples",
+            detections_count=len(result.detections),
+            detections_json=json.dumps(
+                [d.__dict__ if hasattr(d, '__dict__') else str(d) for d in result.detections],
+                default=str,
+            ),
+            raw_response=(result.raw_response or "")[:2000],
+            processing_ms=round(ms, 1),
+        )
+    except Exception:
+        pass
+
+    return {
+        "provider": body.provider,
+        "model": body.model,
+        "samples_analyzed": len(samples),
+        "detections": len(result.detections),
+        "speculative_features_added": len(speculative_features),
+        "summary": result.summary,
+        "error": result.error,
+        "processing_ms": round(ms, 1),
+    }
+
+
+@app.get("/api/analysis/log")
+def analysis_log(limit: int = 20) -> dict:
+    """Return recent AI analysis log entries."""
+    rows = get_analysis_log(limit)
+    return {"count": len(rows), "entries": rows}
+
+
+# ── Persistent Map Store ───────────────────────────────────────────────────────
+
+@app.get("/api/map/features")
+def map_features(
+    lat_min: float = -90.0,
+    lat_max: float = 90.0,
+    lon_min: float = -180.0,
+    lon_max: float = 180.0,
+    kind: str | None = None,
+    limit: int = 500,
+) -> dict:
+    """Geo-bounded feature query from the persistent map store."""
+    return features_in_bounds(lat_min, lat_max, lon_min, lon_max, kind=kind, limit=limit)
+
+
+@app.post("/api/map/seed")
+async def map_seed(lat: float, lon: float, radius_km: float = 50.0) -> dict:
+    """Seed the region around (lat, lon) from FCC + cell tower public data."""
+    from backend.analysis.us_coverage import seed_tile, _operator_tile, _tile_bounds, _tile_id
+    lat_f, lon_f = _operator_tile(lat, lon)
+    lat_min, lon_min, lat_max, lon_max = _tile_bounds(lat_f, lon_f)
+    tile = {
+        "tile_id": _tile_id(lat_f, lon_f),
+        "lat_min": lat_min, "lon_min": lon_min,
+        "lat_max": lat_max, "lon_max": lon_max,
+        "center_lat": lat, "center_lon": lon,
+    }
+    count = await seed_tile(tile)
+    return {"lat": lat, "lon": lon, "radius_km": radius_km, "features_added": count}
+
+
+@app.get("/api/map/coverage")
+def map_coverage() -> dict:
+    """Return US CONUS coverage grid as GeoJSON."""
+    return get_coverage_grid()
+
+
+@app.get("/api/usmap/progress")
+def usmap_progress() -> dict:
+    """Return US mapping progress statistics."""
+    return get_coverage_progress()
+
+
+@app.post("/api/map/confirm")
+def map_confirm(body: ConfirmDetectionRequest) -> dict:
+    """Confirm or dismiss a speculative detection.
+
+    Confirmed features: promote to 'estimate', store as few-shot example.
+    Dismissed features: remove from map store.
+    """
+    if body.confirmed:
+        # Load current feature to get detection properties
+        current = features_in_bounds(-90, 90, -180, 180, limit=10000)
+        feat = next(
+            (f for f in current["features"] if f["properties"].get("id") == body.feature_id),
+            None,
+        )
+        if feat and body.true_lat and body.true_lon:
+            add_confirmed_example(feat["properties"], body.true_lat, body.true_lon)
+        update_feature_kind(body.feature_id, "estimate")
+        return {"feature_id": body.feature_id, "action": "confirmed", "new_kind": "estimate"}
+    else:
+        update_feature_kind(body.feature_id, "dismissed")
+        return {"feature_id": body.feature_id, "action": "dismissed"}
+
+
+# ── Spectrum Full Summary ──────────────────────────────────────────────────────
+
+@app.get("/api/datasources/spectrum/full")
+def spectrum_full_summary() -> dict:
+    """Return the complete 0 Hz–THz band plan grouped by ITU designation."""
+    summary = full_spectrum_summary()
+    total_bands = sum(g["entry_count"] for g in summary)
+    return {
+        "total_bands": total_bands,
+        "itu_groups": len(summary),
+        "coverage": "3 Hz (ELF) through 300 GHz (EHF) + THz reference",
+        "groups": summary,
+    }
+
+
+# ── EM Field Propagation ───────────────────────────────────────────────────────
+
+@app.get("/api/rf/em_field")
+def rf_em_field(lat: float, lon: float, freq_hz: float, radius_km: float = 5.0,
+                eirp_dbm: float = 43.0, n_points: int = 9) -> dict:
+    """Return a GeoJSON grid of E/H field strengths from an emitter at (lat, lon)."""
+    grid = em_field_grid(lat, lon, eirp_dbm, freq_hz, radius_km, n_points)
+    return {"lat": lat, "lon": lon, "freq_hz": freq_hz, "radius_km": radius_km,
+            "eirp_dbm": eirp_dbm, "geojson": grid}
+
+
+@app.get("/api/rf/ionospheric_skip")
+def rf_ionospheric_skip(freq_mhz: float, solar_flux_index: float = 100.0) -> dict:
+    """Calculate HF sky-wave skip distance for a given frequency and solar conditions."""
+    return ionospheric_skip_distance_km(freq_mhz, solar_flux_index)
+
+
+@app.get("/api/rf/atmospheric_absorption")
+def rf_atmospheric_absorption(freq_ghz: float, distance_km: float) -> dict:
+    """Calculate ITU-R P.676 atmospheric absorption for SHF/EHF signals."""
+    return atmospheric_absorption_db(freq_ghz, distance_km)
+
+
+# ── Satellite Relay Map ────────────────────────────────────────────────────────
+
+@app.get("/api/satellites/positions")
+async def satellites_positions(group: str = "geo", limit: int = 50) -> dict:
+    """Return current positions of satellites in the named group."""
+    from datetime import datetime, timezone as tz
+    tle_list = await fetch_tle_group(group, limit=limit)
+    now = datetime.now(tz.utc)
+    positions = []
+    for tle in tle_list:
+        pos = tle_to_position(tle["name"], tle["line1"], tle["line2"], now)
+        if pos:
+            positions.append(pos)
+    geojson_features = [
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [p["lon"], p["lat"]]},
+            "properties": {"name": p["name"], "alt_km": p["alt_km"], "group": group,
+                           "epoch": p["epoch"]},
+        }
+        for p in positions
+    ]
+    return {
+        "group": group,
+        "count": len(positions),
+        "geojson": {"type": "FeatureCollection", "features": geojson_features},
+    }
+
+
+@app.get("/api/satellites/ground_track")
+async def satellites_ground_track(
+    group: str = "goes", sat_name: str = "", hours: float = 6.0, step_min: float = 5.0
+) -> dict:
+    """Return a ground track for a named satellite."""
+    tle_list = await fetch_tle_group(group, limit=100)
+    tle = next((t for t in tle_list if sat_name.lower() in t["name"].lower()), None)
+    if not tle:
+        tle = tle_list[0] if tle_list else None
+    if not tle:
+        raise HTTPException(status_code=404, detail="Satellite not found")
+    track = satellite_ground_track(tle["name"], tle["line1"], tle["line2"], hours, step_min)
+    coords = [[p["lon"], p["lat"]] for p in track]
+    return {
+        "name": tle["name"],
+        "hours": hours,
+        "points": len(track),
+        "geojson": {
+            "type": "Feature",
+            "geometry": {"type": "LineString", "coordinates": coords},
+            "properties": {"name": tle["name"], "group": group},
+        },
+    }
+
+
+@app.get("/api/satellites/footprint")
+async def satellites_footprint(group: str = "geo", sat_name: str = "") -> dict:
+    """Return the coverage footprint polygon for a satellite."""
+    from datetime import datetime, timezone as tz
+    tle_list = await fetch_tle_group(group, limit=100)
+    tle = next((t for t in tle_list if sat_name.lower() in t["name"].lower()), None)
+    if not tle:
+        tle = tle_list[0] if tle_list else None
+    if not tle:
+        raise HTTPException(status_code=404, detail="Satellite not found")
+    pos = tle_to_position(tle["name"], tle["line1"], tle["line2"])
+    if not pos:
+        raise HTTPException(status_code=500, detail="Position calculation failed")
+    footprint = satellite_footprint(pos["lat"], pos["lon"], pos["alt_km"])
+    return {
+        "name": tle["name"],
+        "position": pos,
+        "geojson": {"type": "Feature", "geometry": footprint,
+                    "properties": {"name": tle["name"], "alt_km": pos["alt_km"]}},
+    }
+
+
+@app.post("/api/satellites/uplink_path")
+async def satellites_uplink_path(body: UplinkPathRequest) -> dict:
+    """Return a great-circle arc from a ground station to a satellite's nadir."""
+    from datetime import datetime, timezone as tz
+    tle_list = await fetch_tle_group(body.sat_group, limit=100)
+    tle = next((t for t in tle_list if body.sat_name.lower() in t["name"].lower()), None)
+    if not tle:
+        tle = tle_list[0] if tle_list else None
+    if not tle:
+        raise HTTPException(status_code=404, detail="Satellite not found")
+    pos = tle_to_position(tle["name"], tle["line1"], tle["line2"])
+    if not pos:
+        raise HTTPException(status_code=500, detail="Position calculation failed")
+    arc = uplink_downlink_arc(body.ground_lat, body.ground_lon, pos["lat"], pos["lon"])
+    return {
+        "ground_lat": body.ground_lat,
+        "ground_lon": body.ground_lon,
+        "satellite": tle["name"],
+        "sat_position": pos,
+        "arc_type": "uplink_downlink",
+        "geojson": {"type": "Feature", "geometry": arc,
+                    "properties": {"satellite": tle["name"], "type": "relay_arc"}},
+    }
+
+
+@app.get("/api/satellites/relay_map")
+async def satellites_relay_map(groups: str = "gps,goes,geo") -> dict:
+    """Return full relay map: satellite positions + footprints + earth station arcs."""
+    group_list = [g.strip() for g in groups.split(",") if g.strip()]
+    nearby_stations = EARTH_STATIONS[:8]  # limit arcs to avoid enormous response
+    relay = await build_relay_map(groups=group_list, earth_stations=nearby_stations)
+    return {"groups": group_list, "feature_count": len(relay["features"]), "geojson": relay}
+
+
+@app.get("/api/satellites/earth_stations")
+def earth_stations_list(lat: float | None = None, lon: float | None = None,
+                        radius_km: float = 5000.0) -> dict:
+    """Return known earth stations, optionally filtered by proximity."""
+    if lat is not None and lon is not None:
+        stations = get_stations_near(lat, lon, radius_km)
+    else:
+        stations = EARTH_STATIONS
+    features = [
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [s["lon"], s["lat"]]},
+            "properties": {k: v for k, v in s.items() if k not in ("lat", "lon")},
+        }
+        for s in stations
+    ]
+    return {"count": len(features),
+            "geojson": {"type": "FeatureCollection", "features": features}}
 
 
 # ── Computed Spectrum ─────────────────────────────────────────────────────────
