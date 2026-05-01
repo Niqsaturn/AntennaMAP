@@ -58,8 +58,12 @@ function asFeature(siteFeature, geometry, overlayType) {
 }
 
 function cutoffFromSlider() {
-  const idx = Math.floor((Number(timeRange.value) / 100) * (sortedTimes.length - 1));
-  return sortedTimes[idx] ?? sortedTimes[sortedTimes.length - 1];
+  if (!sortedTimes.length) return null;  // no timestamps → no filter
+  const idx = Math.min(
+    Math.floor((Number(timeRange.value) / 100) * (sortedTimes.length - 1)),
+    sortedTimes.length - 1
+  );
+  return sortedTimes[idx] ?? null;
 }
 
 const popupHtml = (p) => {
@@ -136,14 +140,20 @@ async function applyModelSelection(value) {
 // ── Main site + overlay source refresh ────────────────────────────────────
 async function refreshSource() {
   if (!sourcesInitialized) return;
-  const cutoff = cutoffFromSlider();
-  if (timeLabel) timeLabel.textContent = `Cutoff: ${cutoff ? cutoff.slice(0, 19).replace('T', ' ') : 'all'}`;
+  try {
+    const cutoff = cutoffFromSlider();
+    if (timeLabel) timeLabel.textContent = `Cutoff: ${cutoff ? cutoff.slice(0, 19).replace('T', ' ') : 'all'}`;
 
-  const data = await fetch(`/api/features?timestamp_lte=${encodeURIComponent(cutoff)}`).then((r) => r.json());
-  const visibleSites = data.features.filter((f) =>
-    (f.properties.kind === 'infrastructure' && infraToggle.checked) ||
-    (f.properties.kind === 'estimate' && estToggle.checked)
-  );
+    const url = cutoff
+      ? `/api/features?timestamp_lte=${encodeURIComponent(cutoff)}`
+      : '/api/features';
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    const visibleSites = (data.features || []).filter((f) =>
+      (f.properties.kind === 'infrastructure' && infraToggle?.checked) ||
+      (f.properties.kind === 'estimate' && estToggle?.checked)
+    );
 
   const rays = [], sectors = [], confidence = [];
   visibleSites.forEach((f) => {
@@ -156,10 +166,13 @@ async function refreshSource() {
     if (ellipse) confidence.push(ellipse);
   });
 
-  map.getSource('sites').setData({ type: 'FeatureCollection', features: visibleSites });
-  map.getSource('rays').setData({ type: 'FeatureCollection', features: rayToggle.checked ? rays : [] });
-  map.getSource('sectors').setData({ type: 'FeatureCollection', features: sectorToggle.checked ? sectors : [] });
-  map.getSource('confidence').setData({ type: 'FeatureCollection', features: confidenceToggle.checked ? confidence : [] });
+    map.getSource('sites').setData({ type: 'FeatureCollection', features: visibleSites });
+    map.getSource('rays').setData({ type: 'FeatureCollection', features: rayToggle?.checked ? rays : [] });
+    map.getSource('sectors').setData({ type: 'FeatureCollection', features: sectorToggle?.checked ? sectors : [] });
+    map.getSource('confidence').setData({ type: 'FeatureCollection', features: confidenceToggle?.checked ? confidence : [] });
+  } catch (err) {
+    console.warn('refreshSource error:', err.message);
+  }
 }
 
 // ── Speculative layer ──────────────────────────────────────────────────────

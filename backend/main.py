@@ -689,8 +689,14 @@ def run_inference(provider: str, model: str, payload: dict) -> dict:
     raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
 
 
-def _parse_timestamp(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+def _parse_timestamp(value: str) -> datetime | None:
+    """Parse ISO timestamp string. Returns None for invalid/sentinel values."""
+    if not value or value.lower() in ("undefined", "null", "none", ""):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
 
 
 def _telemetry_in_window(timestamp_lte: str | None) -> tuple[list[dict], datetime | None]:
@@ -739,7 +745,11 @@ def get_features(kind: str | None = Query(default=None, pattern="^(infrastructur
         features = [f for f in features if f.get("properties", {}).get("kind") == kind]
     if timestamp_lte:
         cutoff = _parse_timestamp(timestamp_lte)
-        features = [f for f in features if _parse_timestamp(f["properties"]["timestamp"]) <= cutoff]
+        if cutoff is not None:  # skip filter for invalid/undefined values
+            features = [
+                f for f in features
+                if (ts := _parse_timestamp(f["properties"].get("timestamp", ""))) and ts <= cutoff
+            ]
 
     features = [enrich_feature(f, []) for f in features]
     return {"type": "FeatureCollection", "features": features}

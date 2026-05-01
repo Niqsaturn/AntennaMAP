@@ -3,122 +3,252 @@
   "features": [
     {
       "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -80.282,
-          25.986
-        ]
-      },
+      "geometry": { "type": "Point", "coordinates": [-80.282, 25.986] },
       "properties": {
-        "id": "site-mir-001",
-        "kind": "infrastructure",
-        "name": "Miramar North Tower",
-        "structure_type": "Tower",
-        "directionality": "Sector",
-        "azimuth_deg": 120,
-        "rf_min_mhz": 700,
-        "rf_max_mhz": 2600,
-        "timestamp": "2026-04-28T15:20:00Z",
-        "beamwidth_deg": 80,
-        "ray_length_m": 900,
-        "wedge_radius_m": 1200,
-        "overlay_geometries": {
-          "site_point": null,
-          "direction_ray": null,
-          "sector_wedge": null,
-          "confidence_ellipse": null
-        }
+        "id": "site-mir-001", "kind": "infrastructure", "name": "Miramar North Tower",
+        "structure_type": "Tower", "directionality": "Sector", "azimuth_deg": 120,
+        "rf_min_mhz": 700, "rf_max_mhz": 2600, "timestamp": "2026-04-28T15:20:00Z",
+        "beamwidth_deg": 80, "ray_length_m": 900, "wedge_radius_m": 1200
       }
     },
     {
       "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -80.245,
-          25.978
-        ]
-      },
+      "geometry": { "type": "Point", "coordinates": [-80.245, 25.978] },
       "properties": {
-        "id": "site-mir-002",
-        "kind": "infrastructure",
-        "name": "Miramar East Rooftop",
-        "structure_type": "Rooftop",
-        "directionality": "Omni",
-        "azimuth_deg": null,
-        "rf_min_mhz": 850,
-        "rf_max_mhz": 1900,
-        "timestamp": "2026-04-29T11:05:00Z",
-        "beamwidth_deg": 360,
-        "ray_length_m": 900,
-        "wedge_radius_m": 1200,
-        "overlay_geometries": {
-          "site_point": null,
-          "direction_ray": null,
-          "sector_wedge": null,
-          "confidence_ellipse": null
-        }
+        "id": "site-mir-002", "kind": "infrastructure", "name": "Miramar East Rooftop",
+        "structure_type": "Rooftop", "directionality": "Omni", "azimuth_deg": null,
+        "rf_min_mhz": 850, "rf_max_mhz": 1900, "timestamp": "2026-04-29T11:05:00Z",
+        "beamwidth_deg": 360, "ray_length_m": 600, "wedge_radius_m": 800
       }
     },
     {
       "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -80.263,
-          25.965
-        ]
-      },
+      "geometry": { "type": "Point", "coordinates": [-80.263, 25.965] },
       "properties": {
-        "id": "est-mir-901",
-        "kind": "estimate",
-        "name": "Estimated Emitter A",
-        "freq_band": "1.8 GHz",
-        "confidence_major_m": 320,
-        "confidence_minor_m": 140,
-        "confidence_score": 0.76,
-        "sample_count": 18,
-        "timestamp": "2026-04-29T09:32:00Z",
-        "beamwidth_deg": 80,
-        "ray_length_m": 900,
-        "wedge_radius_m": 1200,
-        "overlay_geometries": {
-          "site_point": null,
-          "direction_ray": null,
-          "sector_wedge": null,
-          "confidence_ellipse": null
-        }
+        "id": "est-mir-901", "kind": "estimate", "name": "Estimated Emitter A",
+        "freq_band": "1.8 GHz", "confidence_score": 0.76, "sample_count": 18,
+        "timestamp": "2026-04-29T09:32:00Z", "beamwidth_deg": 80,
+        "ray_length_m": 900, "wedge_radius_m": 1200
       }
     },
     {
       "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -80.299,
-          25.951
-        ]
-      },
+      "geometry": { "type": "Point", "coordinates": [-80.299, 25.951] },
       "properties": {
-        "id": "est-mir-902",
-        "kind": "estimate",
-        "name": "Estimated Emitter B",
-        "freq_band": "900 MHz",
-        "confidence_major_m": 510,
-        "confidence_minor_m": 220,
-        "confidence_score": 0.62,
-        "sample_count": 9,
-        "timestamp": "2026-04-27T21:10:00Z",
-        "beamwidth_deg": 80,
-        "ray_length_m": 900,
-        "wedge_radius_m": 1200,
-        "overlay_geometries": {
-          "site_point": null,
-          "direction_ray": null,
-          "sector_wedge": null,
-          "confidence_ellipse": null
-        }
+        "id": "est-mir-902", "kind": "estimate", "name": "Estimated Emitter B",
+        "freq_band": "900 MHz", "confidence_score": 0.62, "sample_count": 9,
+        "timestamp": "2026-04-27T21:10:00Z", "beamwidth_deg": 80,
+        "ray_length_m": 900, "wedge_radius_m": 1200
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-118.243, 34.052] },
+      "properties": {
+        "id": "site-la-001", "kind": "infrastructure", "name": "LA Metro Broadcast Tower",
+        "structure_type": "Tower", "directionality": "Omni", "azimuth_deg": 0,
+        "rf_min_mhz": 88, "rf_max_mhz": 108, "timestamp": "2026-04-28T08:00:00Z",
+        "beamwidth_deg": 360, "ray_length_m": 1200, "wedge_radius_m": 2000
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-118.287, 34.018] },
+      "properties": {
+        "id": "site-la-002", "kind": "infrastructure", "name": "LA Harbor Sector Array",
+        "structure_type": "Phased Array", "directionality": "Sector", "azimuth_deg": 215,
+        "rf_min_mhz": 1700, "rf_max_mhz": 2100, "timestamp": "2026-04-28T09:15:00Z",
+        "beamwidth_deg": 65, "ray_length_m": 700, "wedge_radius_m": 1000
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-118.315, 34.073] },
+      "properties": {
+        "id": "est-la-901", "kind": "estimate", "name": "Culver City Emitter",
+        "freq_band": "2.4 GHz", "confidence_score": 0.71, "sample_count": 24,
+        "timestamp": "2026-04-29T07:45:00Z", "azimuth_deg": 45,
+        "beamwidth_deg": 90, "ray_length_m": 400, "wedge_radius_m": 600
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-73.985, 40.748] },
+      "properties": {
+        "id": "site-nyc-001", "kind": "infrastructure", "name": "Empire State Antenna Farm",
+        "structure_type": "Tower", "directionality": "Omni", "azimuth_deg": 0,
+        "rf_min_mhz": 470, "rf_max_mhz": 698, "timestamp": "2026-04-27T14:00:00Z",
+        "beamwidth_deg": 360, "ray_length_m": 2000, "wedge_radius_m": 3000
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-74.044, 40.690] },
+      "properties": {
+        "id": "site-nyc-002", "kind": "infrastructure", "name": "Staten Island Relay",
+        "structure_type": "Rooftop", "directionality": "Sector", "azimuth_deg": 30,
+        "rf_min_mhz": 700, "rf_max_mhz": 900, "timestamp": "2026-04-28T16:30:00Z",
+        "beamwidth_deg": 120, "ray_length_m": 800, "wedge_radius_m": 1100
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-73.944, 40.803] },
+      "properties": {
+        "id": "est-nyc-901", "kind": "estimate", "name": "Harlem Speculative Array",
+        "freq_band": "UHF Land Mobile", "confidence_score": 0.58, "sample_count": 12,
+        "timestamp": "2026-04-28T20:00:00Z", "azimuth_deg": 180,
+        "beamwidth_deg": 80, "ray_length_m": 600, "wedge_radius_m": 900
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-87.629, 41.878] },
+      "properties": {
+        "id": "site-chi-001", "kind": "infrastructure", "name": "Willis Tower Broadcast",
+        "structure_type": "Tower", "directionality": "Omni", "azimuth_deg": 0,
+        "rf_min_mhz": 174, "rf_max_mhz": 216, "timestamp": "2026-04-26T10:00:00Z",
+        "beamwidth_deg": 360, "ray_length_m": 1500, "wedge_radius_m": 2500
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-87.655, 41.851] },
+      "properties": {
+        "id": "site-chi-002", "kind": "infrastructure", "name": "Chicago Midway ATIS",
+        "structure_type": "Tower", "directionality": "Sector", "azimuth_deg": 90,
+        "rf_min_mhz": 118, "rf_max_mhz": 136, "timestamp": "2026-04-26T11:20:00Z",
+        "beamwidth_deg": 60, "ray_length_m": 1000, "wedge_radius_m": 1500
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-87.602, 41.902] },
+      "properties": {
+        "id": "est-chi-901", "kind": "estimate", "name": "Chicago North Shore Emitter",
+        "freq_band": "VHF Land Mobile", "confidence_score": 0.81, "sample_count": 31,
+        "timestamp": "2026-04-29T06:00:00Z", "azimuth_deg": 270,
+        "beamwidth_deg": 70, "ray_length_m": 500, "wedge_radius_m": 800
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-122.419, 37.774] },
+      "properties": {
+        "id": "site-sf-001", "kind": "infrastructure", "name": "Sutro Tower SF",
+        "structure_type": "Tower", "directionality": "Omni", "azimuth_deg": 0,
+        "rf_min_mhz": 88, "rf_max_mhz": 806, "timestamp": "2026-04-27T12:00:00Z",
+        "beamwidth_deg": 360, "ray_length_m": 1800, "wedge_radius_m": 2800
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-122.477, 37.813] },
+      "properties": {
+        "id": "site-sf-002", "kind": "infrastructure", "name": "Golden Gate Radar Array",
+        "structure_type": "Phased Array", "directionality": "Sector", "azimuth_deg": 310,
+        "rf_min_mhz": 9200, "rf_max_mhz": 9500, "timestamp": "2026-04-27T13:30:00Z",
+        "beamwidth_deg": 1, "ray_length_m": 2000, "wedge_radius_m": 2500
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-122.450, 37.756] },
+      "properties": {
+        "id": "est-sf-901", "kind": "estimate", "name": "Twin Peaks Emitter",
+        "freq_band": "FM Broadcast", "confidence_score": 0.89, "sample_count": 44,
+        "timestamp": "2026-04-29T10:00:00Z", "azimuth_deg": 120,
+        "beamwidth_deg": 360, "ray_length_m": 1000, "wedge_radius_m": 1500
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-104.991, 39.739] },
+      "properties": {
+        "id": "site-den-001", "kind": "infrastructure", "name": "Denver Civic Center Tower",
+        "structure_type": "Tower", "directionality": "Omni", "azimuth_deg": 0,
+        "rf_min_mhz": 600, "rf_max_mhz": 700, "timestamp": "2026-04-28T17:00:00Z",
+        "beamwidth_deg": 360, "ray_length_m": 1100, "wedge_radius_m": 1600
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-105.037, 39.712] },
+      "properties": {
+        "id": "est-den-901", "kind": "estimate", "name": "Denver West Sector",
+        "freq_band": "Cellular / LTE", "confidence_score": 0.67, "sample_count": 15,
+        "timestamp": "2026-04-28T18:15:00Z", "azimuth_deg": 60,
+        "beamwidth_deg": 65, "ray_length_m": 600, "wedge_radius_m": 900
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-97.743, 30.267] },
+      "properties": {
+        "id": "site-atx-001", "kind": "infrastructure", "name": "Austin KLBJ Broadcast",
+        "structure_type": "Tower", "directionality": "Omni", "azimuth_deg": 0,
+        "rf_min_mhz": 590, "rf_max_mhz": 590, "timestamp": "2026-04-26T09:00:00Z",
+        "beamwidth_deg": 360, "ray_length_m": 1300, "wedge_radius_m": 2000
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-97.771, 30.302] },
+      "properties": {
+        "id": "est-atx-901", "kind": "estimate", "name": "Austin North Array",
+        "freq_band": "2.4 GHz", "confidence_score": 0.55, "sample_count": 8,
+        "timestamp": "2026-04-27T19:00:00Z", "azimuth_deg": 200,
+        "beamwidth_deg": 90, "ray_length_m": 300, "wedge_radius_m": 500
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-77.036, 38.897] },
+      "properties": {
+        "id": "site-dc-001", "kind": "infrastructure", "name": "DC Capitol Hill Relay",
+        "structure_type": "Rooftop", "directionality": "Sector", "azimuth_deg": 45,
+        "rf_min_mhz": 162, "rf_max_mhz": 174, "timestamp": "2026-04-28T12:00:00Z",
+        "beamwidth_deg": 120, "ray_length_m": 900, "wedge_radius_m": 1300
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-77.012, 38.889] },
+      "properties": {
+        "id": "site-dc-002", "kind": "infrastructure", "name": "Pentagon Phased Array",
+        "structure_type": "Phased Array", "directionality": "Sector", "azimuth_deg": 270,
+        "rf_min_mhz": 225, "rf_max_mhz": 400, "timestamp": "2026-04-29T08:00:00Z",
+        "beamwidth_deg": 30, "ray_length_m": 2000, "wedge_radius_m": 3000
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-77.058, 38.914] },
+      "properties": {
+        "id": "est-dc-901", "kind": "estimate", "name": "Georgetown Emitter",
+        "freq_band": "UHF Land Mobile", "confidence_score": 0.73, "sample_count": 19,
+        "timestamp": "2026-04-29T11:00:00Z", "azimuth_deg": 135,
+        "beamwidth_deg": 80, "ray_length_m": 500, "wedge_radius_m": 750
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-117.161, 32.715] },
+      "properties": {
+        "id": "site-sd-001", "kind": "infrastructure", "name": "San Diego NAS North Island Radar",
+        "structure_type": "Phased Array", "directionality": "Sector", "azimuth_deg": 290,
+        "rf_min_mhz": 2900, "rf_max_mhz": 3100, "timestamp": "2026-04-27T06:00:00Z",
+        "beamwidth_deg": 2, "ray_length_m": 5000, "wedge_radius_m": 6000
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-117.199, 32.718] },
+      "properties": {
+        "id": "est-sd-901", "kind": "estimate", "name": "Point Loma Emitter",
+        "freq_band": "HF / Shortwave", "confidence_score": 0.84, "sample_count": 37,
+        "timestamp": "2026-04-29T04:00:00Z", "azimuth_deg": 180,
+        "beamwidth_deg": 360, "ray_length_m": 8000, "wedge_radius_m": 12000
       }
     }
   ]
