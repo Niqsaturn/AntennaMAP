@@ -14,6 +14,7 @@ const _DARK_STYLE = {
       'sky-type': 'atmosphere',
       'sky-atmosphere-sun': [0.0, 90.0],
       'sky-atmosphere-sun-intensity': 5,
+      'sky-atmosphere-color': 'rgba(15,23,42,0.9)',
     } },
     { id: 'background', type: 'background', paint: { 'background-color': '#0f172a' } },
     { id: 'osm', type: 'raster', source: 'osm-tiles', paint: { 'raster-opacity': 0.55, 'raster-saturation': -0.7, 'raster-brightness-min': 0.05 } },

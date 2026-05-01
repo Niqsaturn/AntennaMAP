@@ -1693,10 +1693,9 @@ async def _capture_loop() -> None:
         _auto_loop._start_idle()
     except Exception:
         pass
-    # Auto-populate KiwiSDR nodes from public directory (non-blocking)
-    from backend.sdr.kiwisdr_client import node_pool as _node_pool
+    # Auto-populate KiwiSDR nodes from public directory (fire-and-forget)
     try:
-        _asyncio.ensure_future(node_pool_auto_populate_loop())
+        _asyncio.create_task(node_pool_auto_populate_loop())
     except Exception:
         pass
 
