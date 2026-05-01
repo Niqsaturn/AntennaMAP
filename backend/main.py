@@ -1887,4 +1887,74 @@ def foxhunt_triangulate(req: FoxMultilatRequest):
     }
 
 
+# ── Bayesian field model ──────────────────────────────────────────────────────
+
+class BayesFieldUpdateRequest(BaseModel):
+    center_lat: float
+    center_lon: float
+    radius_km: float = 50.0
+    resolution_km: float = 2.0
+    rssi_obs: list[dict] = []    # [{obs_lat,obs_lon,rssi_dbm,freq_hz,eirp_dbm?}]
+    bearing_obs: list[dict] = [] # [{obs_lat,obs_lon,bearing_deg,sigma_deg?}]
+    reset: bool = False
+
+
+@app.post("/api/bayes/update")
+def bayes_field_update(body: BayesFieldUpdateRequest) -> dict:
+    """Feed observations into the Bayesian posterior grid and return the heatmap."""
+    from backend.analysis.bayes_field import (
+        BayesGrid, RSSIUpdate, BearingUpdate, get_or_create_grid, reset_grid,
+    )
+    if body.reset:
+        grid = reset_grid(body.center_lat, body.center_lon, body.radius_km, body.resolution_km)
+    else:
+        grid = get_or_create_grid(body.center_lat, body.center_lon, body.radius_km, body.resolution_km)
+
+    for o in body.rssi_obs:
+        try:
+            grid.update_rssi(RSSIUpdate(
+                obs_lat=float(o["obs_lat"]), obs_lon=float(o["obs_lon"]),
+                rssi_dbm=float(o["rssi_dbm"]), freq_hz=float(o["freq_hz"]),
+                eirp_dbm=float(o.get("eirp_dbm", 47.0)),
+            ))
+        except (KeyError, ValueError):
+            pass
+
+    for o in body.bearing_obs:
+        try:
+            grid.update_bearing(BearingUpdate(
+                obs_lat=float(o["obs_lat"]), obs_lon=float(o["obs_lon"]),
+                bearing_deg=float(o["bearing_deg"]),
+                sigma_deg=float(o.get("sigma_deg", 10.0)),
+            ))
+        except (KeyError, ValueError):
+            pass
+
+    geojson = grid.posterior_geojson(top_k=400)
+    return {"geojson": geojson, "observation_count": grid._observation_count}
+
+
+@app.get("/api/bayes/field")
+def bayes_field_query(
+    center_lat: float,
+    center_lon: float,
+    radius_km: float = 50.0,
+    resolution_km: float = 2.0,
+) -> dict:
+    """Return the current posterior heatmap for an existing grid."""
+    from backend.analysis.bayes_field import get_or_create_grid
+    grid = get_or_create_grid(center_lat, center_lon, radius_km, resolution_km)
+    geojson = grid.posterior_geojson(top_k=400)
+    return {"geojson": geojson, "observation_count": grid._observation_count}
+
+
+@app.delete("/api/bayes/field")
+def bayes_field_reset(center_lat: float, center_lon: float,
+                      radius_km: float = 50.0, resolution_km: float = 2.0) -> dict:
+    """Reset the posterior to a flat prior."""
+    from backend.analysis.bayes_field import reset_grid
+    reset_grid(center_lat, center_lon, radius_km, resolution_km)
+    return {"ok": True}
+
+
 app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")

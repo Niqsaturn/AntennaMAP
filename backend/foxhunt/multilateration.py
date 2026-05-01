@@ -530,6 +530,61 @@ def _fuse_estimates(
     )
 
 
+# ── Observability check ───────────────────────────────────────────────────────
+
+def _check_observability(
+    rssi_obs: list[RSSIObs],
+    tdoa_obs: list[TDOAObs],
+    bearing_obs: list[BearingObs],
+) -> tuple[bool, str]:
+    """Return (observable, reason).
+
+    A geometry is considered observable if ANY of:
+    - 3+ bearing lines with angular spread ≥ 15°  (non-collinear)
+    - 3+ RSSI nodes with spread ≥ 10 dB
+    - 1+ TDOA pair with baseline ≥ 1 km
+    """
+    # TDOA: baseline check
+    for o in tdoa_obs:
+        baseline_m = _haversine_m(o.lat_ref, o.lon_ref, o.lat_remote, o.lon_remote)
+        if baseline_m >= 1000.0:
+            return True, "tdoa_baseline_ok"
+
+    # RSSI spread
+    if len(rssi_obs) >= 3:
+        rssi_vals = [o.rssi_dbm for o in rssi_obs]
+        if max(rssi_vals) - min(rssi_vals) >= 10.0:
+            return True, "rssi_spread_ok"
+
+    # Bearing angular diversity
+    if len(bearing_obs) >= 3:
+        angles_rad = [math.radians(o.bearing_deg) for o in bearing_obs]
+        # Pairwise angular differences
+        max_diff = 0.0
+        for i in range(len(angles_rad)):
+            for j in range(i + 1, len(angles_rad)):
+                diff = abs(math.degrees(
+                    math.atan2(
+                        math.sin(angles_rad[i] - angles_rad[j]),
+                        math.cos(angles_rad[i] - angles_rad[j]),
+                    )
+                ))
+                max_diff = max(max_diff, diff)
+        if max_diff >= 15.0:
+            return True, "bearing_diversity_ok"
+
+    # Build reason string
+    reasons = []
+    if bearing_obs:
+        reasons.append(f"{len(bearing_obs)} bearing(s)")
+    if rssi_obs:
+        spread = max(o.rssi_dbm for o in rssi_obs) - min(o.rssi_dbm for o in rssi_obs) if rssi_obs else 0
+        reasons.append(f"{len(rssi_obs)} RSSI nodes, spread={spread:.1f}dB")
+    if tdoa_obs:
+        reasons.append(f"{len(tdoa_obs)} TDOA pair(s)")
+    return False, "insufficient geometry: " + (", ".join(reasons) or "no observations")
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 
 def locate_transmitter(
@@ -599,8 +654,16 @@ def locate_transmitter(
     if apply_constraints and estimates:
         estimates = [_apply_band_constraints(e, all_positions, freq_hz) for e in estimates]
 
+    observable, obs_note = _check_observability(rssi_obs, tdoa_obs, bearing_obs)
     fix = _fuse_estimates(estimates, lat0, lon0)
     fix.freq_hz = freq_hz
+
+    # Downgrade confidence if geometry is not sufficiently observable
+    if not observable:
+        fix.confidence = min(fix.confidence, 0.15)
+        for e in fix.per_method:
+            e.notes = (e.notes + "; " if e.notes else "") + obs_note
+
     return fix
 
 

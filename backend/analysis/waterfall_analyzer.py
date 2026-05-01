@@ -21,11 +21,15 @@ class SpectralPeak:
 
 
 def _noise_floor(psd_bins_db: list[float], noise_figure_db: float) -> float:
-    """Bottom 20th-percentile mean of PSD bins + NF correction."""
+    """Bottom 5th-percentile mean of PSD bins + NF correction.
+
+    Using 5th percentile (not 20th) to avoid bias from strong in-band signals
+    elevating the estimated noise floor.
+    """
     if not psd_bins_db:
         return -100.0 + noise_figure_db
     sorted_bins = sorted(psd_bins_db)
-    cutoff = max(1, len(sorted_bins) // 5)
+    cutoff = max(1, len(sorted_bins) // 20)
     return sum(sorted_bins[:cutoff]) / cutoff + noise_figure_db
 
 

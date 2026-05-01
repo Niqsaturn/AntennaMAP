@@ -31,6 +31,7 @@ const sectorToggle    = document.getElementById('sectorToggle');
 const confidenceToggle= document.getElementById('confidenceToggle');
 const coverageToggle  = document.getElementById('coverageToggle');
 const satelliteToggle = document.getElementById('satelliteToggle');
+const bayesToggle     = document.getElementById('bayesToggle');
 const timeRange       = document.getElementById('timeRange');
 const timeLabel       = document.getElementById('timeLabel');
 const loopStatus        = document.getElementById('loopStatus');
@@ -589,6 +590,20 @@ function _addFoxSources() {
   map.addSource('fox-targets',  { type: 'geojson', data: empty });
   map.addSource('fox-ellipses', { type: 'geojson', data: empty });
   map.addSource('fox-bearings', { type: 'geojson', data: empty });
+  map.addSource('bayes-field',  { type: 'geojson', data: empty });
+
+  // Bayesian posterior heatmap (rendered below fox layers)
+  map.addLayer({ id: 'bayes-fill', type: 'fill', source: 'bayes-field',
+    layout: { visibility: 'none' },
+    paint: {
+      'fill-color': ['interpolate', ['linear'], ['get', 'probability'],
+        0,      'rgba(59,130,246,0)',
+        0.001,  'rgba(59,130,246,0.4)',
+        0.01,   'rgba(245,158,11,0.55)',
+        0.05,   'rgba(239,68,68,0.7)',
+      ],
+      'fill-opacity': 1,
+    } });
 
   // Uncertainty ellipses (fill + outline)
   map.addLayer({ id: 'fox-ellipse-fill', type: 'fill', source: 'fox-ellipses',
@@ -897,6 +912,23 @@ bearingRayToggle?.addEventListener('change', () => {
   const vis = bearingRayToggle.checked ? 'visible' : 'none';
   try { map.setLayoutProperty('fox-bearing-rays', 'visibility', vis); } catch {}
 });
+
+bayesToggle?.addEventListener('change', () => {
+  const vis = bayesToggle.checked ? 'visible' : 'none';
+  try { map.setLayoutProperty('bayes-fill', 'visibility', vis); } catch {}
+  if (bayesToggle.checked) refreshBayesField();
+});
+
+async function refreshBayesField() {
+  if (!bayesToggle?.checked) return;
+  try {
+    const c = map.getCenter();
+    const url = `/api/bayes/field?center_lat=${c.lat.toFixed(4)}&center_lon=${c.lng.toFixed(4)}`;
+    const data = await fetch(url).then((r) => r.json());
+    const src = map.getSource('bayes-field');
+    if (src) src.setData(data);
+  } catch {}
+}
 
 // Collapsible sections in fox panel
 waterfallHeader?.addEventListener('click', () => {
