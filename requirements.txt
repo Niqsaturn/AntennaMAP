@@ -4,3 +4,7 @@ numpy==2.2.5
 PyYAML==6.0.2
 httpx==0.28.1
 pytest==8.3.5
+# KiwiSDR network integration (WebSocket, no hardware required)
+websocket-client==1.8.0
+# Satellite TLE orbit propagation (pure Python, no hardware required)
+sgp4==2.23

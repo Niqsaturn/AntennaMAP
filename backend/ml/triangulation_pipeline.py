@@ -124,8 +124,20 @@ def solve_weighted_least_squares(samples: list[TelemetrySample]) -> InferenceRes
     if len(weights) < len(inter):
         weights = np.pad(weights, (0, len(inter) - len(weights)), constant_values=weights.mean() if len(weights) else 1.0)
     arr = np.array(inter)
-    center = np.average(arr, axis=0, weights=weights[: len(inter)])
-    cov = np.cov((arr - center).T, aweights=weights[: len(inter)]) + np.eye(2) * 1e-10
+    w = weights[: len(inter)]
+    center = np.average(arr, axis=0, weights=w)
+
+    # Covariance requires ≥2 distinct points; fall back to identity when degenerate
+    if len(inter) >= 2:
+        try:
+            cov = np.cov((arr - center).T, aweights=w) + np.eye(2) * 1e-10
+            if not np.all(np.isfinite(cov)):
+                raise ValueError("non-finite covariance")
+        except Exception:
+            cov = np.eye(2) * 1e-10
+    else:
+        cov = np.eye(2) * 1e-10
+
     eigvals, eigvecs = np.linalg.eigh(cov)
     order = np.argsort(eigvals)[::-1]
     eigvals, eigvecs = eigvals[order], eigvecs[:, order]

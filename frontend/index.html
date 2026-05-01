@@ -3,30 +3,68 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AntennaMAP Starter</title>
+  <title>AntennaMAP</title>
   <link href="https://unpkg.com/maplibre-gl@4.3.2/dist/maplibre-gl.css" rel="stylesheet" />
   <link href="./styles.css" rel="stylesheet" />
 </head>
 <body>
   <div id="map"></div>
   <aside class="panel">
-    <h1>AntennaMAP Starter</h1>
-    <p class="muted">Miramar pilot · informational RF metadata only</p>
+    <h1>AntennaMAP</h1>
+    <p class="muted">RF metadata only · no payload decoding</p>
+
+    <div class="section-header">Layers</div>
     <label><input id="infraToggle" type="checkbox" checked> Infrastructure</label>
     <label><input id="estToggle" type="checkbox" checked> Estimated emitters</label>
+    <label><input id="spectToggle" type="checkbox" checked> Speculative arrays</label>
     <label><input id="rayToggle" type="checkbox" checked> Directional Rays</label>
     <label><input id="sectorToggle" type="checkbox" checked> Sector Polygons</label>
     <label><input id="confidenceToggle" type="checkbox" checked> Confidence Ellipses</label>
+    <label><input id="coverageToggle" type="checkbox"> US Coverage Grid</label>
+    <label><input id="satelliteToggle" type="checkbox"> Satellites</label>
+
+    <div class="section-header">Time</div>
     <label for="timeRange">Time cutoff</label>
     <input id="timeRange" type="range" min="0" max="100" value="100" />
     <div id="timeLabel" class="muted"></div>
-    <label for="propModel">Propagation model</label>
+
+    <div class="section-header">Model</div>
+    <label for="propModel">Propagation</label>
     <select id="propModel">
       <option value="fspl">FSPL</option>
       <option value="hata_urban">Hata (Urban)</option>
       <option value="hata_suburban">Hata (Suburban)</option>
     </select>
+    <label for="modelSelect">Inference model</label>
+    <select id="modelSelect">
+      <option value="">— None —</option>
+    </select>
+    <label for="satGroup">Satellite group</label>
+    <select id="satGroup">
+      <option value="geo">GEO (Geostationary)</option>
+      <option value="gps">GPS Constellation</option>
+      <option value="goes">GOES Weather</option>
+      <option value="starlink">Starlink</option>
+      <option value="iridium">Iridium</option>
+      <option value="noaa">NOAA</option>
+      <option value="active">All Active</option>
+    </select>
+    <div class="btn-row">
+      <button id="analyzeNow" class="btn-primary">Analyze Now</button>
+      <button id="seedRegion" class="btn-secondary">Seed Region</button>
+    </div>
+    <label for="loopInterval">Loop interval (s)</label>
+    <input id="loopInterval" type="number" value="60" min="10" max="3600" />
+
+    <div class="section-header">Status</div>
     <div id="loopStatus" class="loop-status">Loop: loading...</div>
+    <div id="sdrStatus" class="loop-status">SDR: loading...</div>
+    <div id="coverageStatus" class="loop-status">Coverage: —</div>
+    <div id="calibrationStatus" class="loop-status">Calibration: —</div>
+
+    <div class="section-header collapsible" id="analysisLogHeader">Analysis Log ▾</div>
+    <div id="analysisLog" class="analysis-log"></div>
+
     <div id="details" class="details">Click markers for metadata.</div>
   </aside>
   <script src="https://unpkg.com/maplibre-gl@4.3.2/dist/maplibre-gl.js"></script>

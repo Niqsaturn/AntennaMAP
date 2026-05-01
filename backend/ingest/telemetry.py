@@ -10,7 +10,7 @@ from backend.ingest.storage import append_jsonl
 
 
 class TelemetryRecord(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     source: str = Field(min_length=1, default="telemetry")
     timestamp: datetime
@@ -20,6 +20,8 @@ class TelemetryRecord(BaseModel):
     bearing_deg: float
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
+    frequency_hz: float | None = None      # exact center frequency (enables FSPL inversion)
+    operator_id: str = "default"           # multi-operator triangulation future use
 
 
 @dataclass
