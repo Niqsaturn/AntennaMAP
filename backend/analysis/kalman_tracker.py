@@ -75,8 +75,8 @@ class PositionKalman:
         self.P_lat = (1.0 - K_lat) * self.P_lat
         self.P_lon = (1.0 - K_lon) * self.P_lon
 
-        # Convert posterior variance back to meters
-        updated_m = math.sqrt(max(self.P_lat, self.P_lon)) / _DEG_PER_M_LAT
+        # Convert posterior variance back to meters (combine both axes)
+        updated_m = math.sqrt(self.P_lat + self.P_lon) / _DEG_PER_M_LAT
         return round(self.lat, 7), round(self.lon, 7), round(updated_m, 1)
 
     def to_json(self) -> str:

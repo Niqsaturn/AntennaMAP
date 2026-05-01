@@ -529,8 +529,8 @@ def _run_analysis_cycle(cfg: dict) -> None:
                     feat.get("properties", {})["kalman_uncertainty_m"] = round(s_unc, 1)
                     upsert_feature(feat)
                     kf.save(fid)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("failed to save kalman state for %s: %s", fid, e)
 
     # ------------------------------------------------------------------
     # Mark operator's current tile as analyzed

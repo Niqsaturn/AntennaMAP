@@ -28,7 +28,7 @@ const map = new maplibregl.Map({
   center: [0, 20], zoom: 1.8, pitch: 0, bearing: 0, antialias: true,
 });
 
-// Globe slow-spin — paused while user interacts
+// Globe slow-spin - paused while user interacts
 let _spinActive = true;
 let _spinResumeTimer = null;
 function _spinGlobe() {
@@ -110,8 +110,8 @@ const popupHtml = (p) => {
     ? `<div class="confirm-row"><button onclick="confirmFeature('${p.id}',true)">Confirm</button> <button onclick="confirmFeature('${p.id}',false)">Dismiss</button></div>`
     : '';
   return `<strong>${p.name || p.id}</strong><br>Kind: ${p.kind}${conf}${count}` +
-    `<br>Freq: ${p.freq_band || '—'}<br>Type: ${p.antenna_type || p.structure_type || '—'}` +
-    `<br>Azimuth: ${p.azimuth_deg ?? '—'}°${source}${notes}${confirmRow}`;
+    `<br>Freq: ${p.freq_band || '-'}<br>Type: ${p.antenna_type || p.structure_type || '-'}` +
+    `<br>Azimuth: ${p.azimuth_deg ?? '-'}°${source}${notes}${confirmRow}`;
 };
 
 // ── SDR Status ─────────────────────────────────────────────────────────────
@@ -139,7 +139,7 @@ async function refreshLoopStatus() {
     loopStatus.innerHTML =
       `<strong>Loop:</strong> ${s.active ? 'running' : 'paused'} · ` +
       `<strong>Provider:</strong> ${s.config.provider} · ` +
-      `<strong>Model:</strong> ${s.config.model || '—'}<br>` +
+      `<strong>Model:</strong> ${s.config.model || '-'}<br>` +
       `<strong>Interval:</strong> ${s.config.interval_seconds}s · ` +
       `<strong>Last OK:</strong> ${last.slice(0, 19).replace('T', ' ')}`;
   } catch (_) { loopStatus.textContent = 'Loop: unavailable'; }
@@ -150,13 +150,13 @@ async function populateModelDropdown() {
   if (!modelDropdown) return;
   try {
     const data = await fetch('/api/models/discover').then((r) => r.json());
-    const options = [['', '— None —']];
+    const options = [['', '- None -']];
     (data.ollama || []).forEach((m) => options.push([`ollama/${m}`, `Ollama: ${m}`]));
     (data.python_local || []).forEach((m) => options.push([`python_local/${m}`, `Local: ${m}`]));
     modelDropdown.innerHTML = options.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
     if (selectedModel) modelDropdown.value = selectedModel;
   } catch (_) {
-    if (modelDropdown) modelDropdown.innerHTML = '<option value="">— unavailable —</option>';
+    if (modelDropdown) modelDropdown.innerHTML = '<option value="">- unavailable -</option>';
   }
 }
 
@@ -271,7 +271,7 @@ async function refreshAnalysisLog() {
     analysisLog.innerHTML = data.entries.map((e) => {
       const ts = (e.timestamp || '').slice(0, 19).replace('T', ' ');
       return `<div class="log-entry"><span class="log-ts">${ts}</span> ` +
-        `<strong>${e.model || '—'}</strong> · ${e.detections_count} detection(s)<br>` +
+        `<strong>${e.model || '-'}</strong> · ${e.detections_count} detection(s)<br>` +
         `<span class="muted">${e.input_summary || ''}</span></div>`;
     }).join('');
   } catch (_) { if (analysisLog) analysisLog.innerHTML = '<span class="muted">unavailable</span>'; }
@@ -350,10 +350,10 @@ async function refreshCalibration() {
     } else {
       calibrationStatus.innerHTML =
         `<strong>Calibration:</strong> ${d.count} confirmed · ` +
-        `mean error ${d.mean_error_m != null ? d.mean_error_m.toFixed(0) : '—'} m · ` +
-        `median ${d.median_error_m != null ? d.median_error_m.toFixed(0) : '—'} m`;
+        `mean error ${d.mean_error_m != null ? d.mean_error_m.toFixed(0) : '-'} m · ` +
+        `median ${d.median_error_m != null ? d.median_error_m.toFixed(0) : '-'} m`;
     }
-  } catch (_) { if (calibrationStatus) calibrationStatus.textContent = 'Calibration: —'; }
+  } catch (_) { if (calibrationStatus) calibrationStatus.textContent = 'Calibration: -'; }
 }
 
 // ── Uncertain features ─────────────────────────────────────────────────────
@@ -392,7 +392,7 @@ map.on('load', async () => {
   map.addSource('satellites',           { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('speculative-uncertain',{ type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
 
-  // ── Layers — base ────────────────────────────────────────────────────────
+  // ── Layers - base ────────────────────────────────────────────────────────
   map.addLayer({ id: 'infra-layer',    type: 'circle', source: 'sites',
     filter: ['==', ['get', 'kind'], 'infrastructure'],
     paint: { 'circle-radius': 7, 'circle-color': '#4ea8ff', 'circle-stroke-width': 1, 'circle-stroke-color': '#fff' } });
@@ -406,7 +406,7 @@ map.on('load', async () => {
   map.addLayer({ id: 'confidence-layer',type: 'fill', source: 'confidence',
     paint: { 'fill-color': '#ffc857', 'fill-opacity': 0.2 } });
 
-  // ── Layers — speculative ─────────────────────────────────────────────────
+  // ── Layers - speculative ─────────────────────────────────────────────────
   map.addLayer({ id: 'spec-sector-layer', type: 'fill', source: 'spec-sectors',
     paint: { 'fill-color': '#c084fc', 'fill-opacity': 0.15 } });
   map.addLayer({ id: 'spec-ellipse-layer', type: 'fill', source: 'spec-ellipses',
@@ -420,7 +420,7 @@ map.on('load', async () => {
       'circle-stroke-width': 1, 'circle-stroke-color': '#fff',
     } });
 
-  // ── Layers — coverage grid ───────────────────────────────────────────────
+  // ── Layers - coverage grid ───────────────────────────────────────────────
   map.addLayer({ id: 'coverage-fill', type: 'fill', source: 'coverage',
     paint: {
       'fill-color': [
@@ -432,8 +432,8 @@ map.on('load', async () => {
   map.addLayer({ id: 'coverage-outline', type: 'line', source: 'coverage',
     paint: { 'line-color': '#374151', 'line-width': 0.5, 'line-opacity': 0.4 } });
 
-  // ── Layers — satellites ──────────────────────────────────────────────────
-  // ── Layer — uncertain features (pulsing outer ring) ─────────────────────
+  // ── Layers - satellites ──────────────────────────────────────────────────
+  // ── Layer - uncertain features (pulsing outer ring) ─────────────────────
   map.addLayer({ id: 'uncertain-ring', type: 'circle', source: 'speculative-uncertain',
     paint: {
       'circle-radius': ['interpolate', ['linear'], ['get', 'confidence'], 0, 14, 1, 18],
@@ -443,7 +443,7 @@ map.on('load', async () => {
       'circle-opacity': 0.85,
     } });
 
-  // ── Layers — satellites ──────────────────────────────────────────────────
+  // ── Layers - satellites ──────────────────────────────────────────────────
   map.addLayer({ id: 'satellite-layer', type: 'circle', source: 'satellites',
     paint: { 'circle-radius': 5, 'circle-color': '#ffffff', 'circle-stroke-width': 1.5, 'circle-stroke-color': '#60a5fa' } });
   map.addLayer({ id: 'satellite-label', type: 'symbol', source: 'satellites',
@@ -824,7 +824,7 @@ function _addConfirmedItem(ev) {
   const item = document.createElement('div');
   item.className = 'confirmed-item';
   const freqMhz = (ev.freq_hz / 1e6).toFixed(3);
-  const conf = ev.confidence != null ? `${(ev.confidence * 100).toFixed(0)}%` : '—';
+  const conf = ev.confidence != null ? `${(ev.confidence * 100).toFixed(0)}%` : '-';
   item.innerHTML = `<span class="confirmed-freq">${freqMhz} MHz</span><span class="confirmed-conf">${conf}</span>`;
   item.onclick = () => {
     if (ev.feature?.geometry?.coordinates) {
