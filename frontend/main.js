@@ -62,6 +62,8 @@ const loopStatus        = document.getElementById('loopStatus');
 const sdrStatus         = document.getElementById('sdrStatus');
 const coverageStatus    = document.getElementById('coverageStatus');
 const calibrationStatus = document.getElementById('calibrationStatus');
+const featureHealthStatus = document.getElementById('featureHealthStatus');
+const renderHealthStatus = document.getElementById('renderHealthStatus');
 const modelDropdown   = document.getElementById('modelSelect');
 const satGroupSelect  = document.getElementById('satGroup');
 const analyzeBtn      = document.getElementById('analyzeNow');
@@ -73,6 +75,38 @@ const logHeader       = document.getElementById('analysisLogHeader');
 let sortedTimes = [];
 let sourcesInitialized = false;
 let selectedModel = '';
+const health = {
+  lastFeatureFetchOkAt: null,
+  counts: { infrastructure: 0, estimate: 0, speculative: 0, fox_targets: 0 },
+  render: { features: 'pending', speculative: 'pending', satellites: 'pending', fox_targets: 'pending' },
+};
+
+function _safeSetSourceData(sourceId, data, statusKey) {
+  try {
+    const src = map.getSource(sourceId);
+    if (!src) throw new Error(`source ${sourceId} missing`);
+    src.setData(data);
+    if (statusKey) health.render[statusKey] = 'ok';
+    return true;
+  } catch (err) {
+    if (statusKey) health.render[statusKey] = `error: ${err.message}`;
+    return false;
+  }
+}
+
+function _renderHealth() {
+  if (featureHealthStatus) {
+    const lastOk = health.lastFeatureFetchOkAt ? new Date(health.lastFeatureFetchOkAt).toLocaleTimeString() : 'never';
+    featureHealthStatus.innerHTML =
+      `<strong>Features:</strong> last OK ${lastOk}<br>` +
+      `infra ${health.counts.infrastructure} · estimate ${health.counts.estimate} · speculative ${health.counts.speculative} · fox ${health.counts.fox_targets}`;
+  }
+  if (renderHealthStatus) {
+    renderHealthStatus.innerHTML =
+      `<strong>Render:</strong> features ${health.render.features}<br>` +
+      `spec ${health.render.speculative} · sats ${health.render.satellites} · fox ${health.render.fox_targets}`;
+  }
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const formatFreqHz = (hz) => `${(hz / 1_000_000).toFixed(3)} MHz`;
@@ -175,6 +209,10 @@ async function refreshSource() {
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
+    health.lastFeatureFetchOkAt = new Date().toISOString();
+    const allFeatures = data.features || [];
+    health.counts.infrastructure = allFeatures.filter((f) => f.properties.kind === 'infrastructure').length;
+    health.counts.estimate = allFeatures.filter((f) => f.properties.kind === 'estimate').length;
     const visibleSites = (data.features || []).filter((f) =>
       (f.properties.kind === 'infrastructure' && infraToggle?.checked) ||
       (f.properties.kind === 'estimate' && estToggle?.checked)
@@ -191,11 +229,14 @@ async function refreshSource() {
     if (ellipse) confidence.push(ellipse);
   });
 
-    map.getSource('sites').setData({ type: 'FeatureCollection', features: visibleSites });
-    map.getSource('rays').setData({ type: 'FeatureCollection', features: rayToggle?.checked ? rays : [] });
-    map.getSource('sectors').setData({ type: 'FeatureCollection', features: sectorToggle?.checked ? sectors : [] });
-    map.getSource('confidence').setData({ type: 'FeatureCollection', features: confidenceToggle?.checked ? confidence : [] });
+    _safeSetSourceData('sites', { type: 'FeatureCollection', features: visibleSites }, 'features');
+    _safeSetSourceData('rays', { type: 'FeatureCollection', features: rayToggle?.checked ? rays : [] }, 'features');
+    _safeSetSourceData('sectors', { type: 'FeatureCollection', features: sectorToggle?.checked ? sectors : [] }, 'features');
+    _safeSetSourceData('confidence', { type: 'FeatureCollection', features: confidenceToggle?.checked ? confidence : [] }, 'features');
+    _renderHealth();
   } catch (err) {
+    health.render.features = `error: ${err.message}`;
+    _renderHealth();
     console.warn('refreshSource error:', err.message);
   }
 }
@@ -209,6 +250,7 @@ async function refreshSpeculative() {
       `&lat_min=${bounds.getSouth().toFixed(4)}&lat_max=${bounds.getNorth().toFixed(4)}` +
       `&lon_min=${bounds.getWest().toFixed(4)}&lon_max=${bounds.getEast().toFixed(4)}&limit=300`;
     const data = await fetch(url).then((r) => r.json());
+    health.counts.speculative = (data.features || []).length;
 
     const rays = [], sectors = [], ellipses = [];
     (data.features || []).forEach((f) => {
@@ -218,14 +260,16 @@ async function refreshSpeculative() {
       if (o.confidence_ellipse) ellipses.push(asFeature(f, o.confidence_ellipse, 'confidence_ellipse'));
     });
 
-    map.getSource('speculative').setData({
+    _safeSetSourceData('speculative', {
       type: 'FeatureCollection',
       features: spectToggle.checked ? (data.features || []) : [],
-    });
-    map.getSource('spec-rays').setData({ type: 'FeatureCollection', features: rayToggle.checked ? rays : [] });
-    map.getSource('spec-sectors').setData({ type: 'FeatureCollection', features: sectorToggle.checked ? sectors : [] });
-    map.getSource('spec-ellipses').setData({ type: 'FeatureCollection', features: confidenceToggle.checked ? ellipses : [] });
-  } catch (_) {}
+    }, 'speculative');
+    _safeSetSourceData('spec-rays', { type: 'FeatureCollection', features: rayToggle.checked ? rays : [] }, 'speculative');
+    _safeSetSourceData('spec-sectors', { type: 'FeatureCollection', features: sectorToggle.checked ? sectors : [] }, 'speculative');
+    _safeSetSourceData('spec-ellipses', { type: 'FeatureCollection', features: confidenceToggle.checked ? ellipses : [] }, 'speculative');
+  } catch (err) {
+    health.render.speculative = `error: ${err.message}`;
+  } finally { _renderHealth(); }
 }
 
 // ── Coverage layer ─────────────────────────────────────────────────────────
@@ -248,8 +292,10 @@ async function refreshSatellites() {
   try {
     const group = satGroupSelect?.value || 'geo';
     const data = await fetch(`/api/satellites/positions?group=${group}&limit=40`).then((r) => r.json());
-    map.getSource('satellites').setData(data.geojson || { type: 'FeatureCollection', features: [] });
-  } catch (_) {}
+    _safeSetSourceData('satellites', data.geojson || { type: 'FeatureCollection', features: [] }, 'satellites');
+  } catch (err) {
+    health.render.satellites = `error: ${err.message}`;
+  } finally { _renderHealth(); }
 }
 
 // ── Analysis Log ───────────────────────────────────────────────────────────
@@ -783,13 +829,15 @@ function _handleSseEvent(ev) {
         const existing = src._data?.features || [];
         ev.feature.properties.freq_label = `${(ev.freq_hz / 1e6).toFixed(2)} MHz`;
         existing.push(ev.feature);
-        src.setData({ type: 'FeatureCollection', features: existing });
+        health.counts.fox_targets = existing.length;
+        _safeSetSourceData('fox-targets', { type: 'FeatureCollection', features: existing }, 'fox_targets');
       }
       // Add to confirmed list panel
       _addConfirmedItem(ev);
       // Clear bearing rays for next target
       _bearingObs.length = 0;
       _updateBearingRaySource();
+      _renderHealth();
       break;
     }
 
