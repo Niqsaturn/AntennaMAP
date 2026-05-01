@@ -363,8 +363,13 @@ async function refreshUncertain() {
 
 // ── Map load ───────────────────────────────────────────────────────────────
 map.on('load', async () => {
-  // Setup globe fog and spin
-  try {
+  // Setup globe fog (when supported) and spin
+  const canSetFog = typeof map.setFog === 'function';
+  const projection = typeof map.getProjection === 'function' ? map.getProjection() : null;
+  const projectionName = projection && typeof projection === 'object' ? projection.name : null;
+  const fogCompatibleProjection = !projectionName || projectionName === 'globe';
+
+  if (canSetFog && fogCompatibleProjection) {
     map.setFog({
       color: 'rgba(15,23,42,0.85)',
       'high-color': '#1e3a5f',
@@ -372,10 +377,9 @@ map.on('load', async () => {
       'space-color': '#0f172a',
       'star-intensity': 0.35,
     });
-    requestAnimationFrame(_spinGlobe);
-  } catch (e) {
-    console.warn('fog setup skipped:', e.message);
   }
+
+  requestAnimationFrame(_spinGlobe);
 
   map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
