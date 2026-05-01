@@ -157,6 +157,13 @@ select option { background: #1a2030; }
 /* ── Waterfall spectrogram ───────────────────────────────────────────────── */
 .waterfall-container { position: relative; margin-top: 4px; }
 .waterfall-container.collapsed { display: none; }
+.waterfall-status {
+  font-size: 10px;
+  margin-bottom: 4px;
+  color: #94a3b8;
+}
+.waterfall-status.status-receiving { color: #22c55e; }
+.waterfall-status.status-mismatch { color: #f59e0b; }
 .waterfall-canvas {
   width: 100%; height: 120px; display: block;
   border-radius: 5px; background: #020617; image-rendering: pixelated;
