@@ -1,6 +1,7 @@
 const _DARK_STYLE = {
   version: 8,
   name: 'dark',
+  glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
   sources: {
     'osm-tiles': {
       type: 'raster',
@@ -455,7 +456,7 @@ map.on('load', async () => {
   map.addLayer({ id: 'satellite-layer', type: 'circle', source: 'satellites',
     paint: { 'circle-radius': 5, 'circle-color': '#ffffff', 'circle-stroke-width': 1.5, 'circle-stroke-color': '#60a5fa' } });
   map.addLayer({ id: 'satellite-label', type: 'symbol', source: 'satellites',
-    layout: { 'text-field': ['get', 'name'], 'text-size': 9, 'text-offset': [0, 1.2] },
+    layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': 9, 'text-offset': [0, 1.2] },
     paint: { 'text-color': '#ffffff', 'text-halo-color': '#000', 'text-halo-width': 1 } });
 
   sourcesInitialized = true;
@@ -663,7 +664,7 @@ function _addFoxSources() {
       'circle-stroke-color': '#fff',
     } });
   map.addLayer({ id: 'fox-target-label', type: 'symbol', source: 'fox-targets',
-    layout: { 'text-field': ['get', 'freq_label'], 'text-size': 9, 'text-offset': [0, 1.6] },
+    layout: { 'text-field': ['get', 'freq_label'], 'text-font': ['Noto Sans Regular'], 'text-size': 9, 'text-offset': [0, 1.6] },
     paint: { 'text-color': '#4ade80', 'text-halo-color': '#000', 'text-halo-width': 1 } });
 
   // Click handler for fox targets
