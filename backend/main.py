@@ -1693,6 +1693,24 @@ async def _capture_loop() -> None:
         _auto_loop._start_idle()
     except Exception:
         pass
+    # Auto-populate KiwiSDR nodes from public directory (non-blocking)
+    from backend.sdr.kiwisdr_client import node_pool as _node_pool
+    try:
+        _asyncio.ensure_future(node_pool_auto_populate_loop())
+    except Exception:
+        pass
+
+
+async def node_pool_auto_populate_loop() -> None:
+    """Auto-populate KiwiSDR nodes at startup and refresh every 6 hours."""
+    import asyncio as _aio
+    from backend.sdr.kiwisdr_client import node_pool as _node_pool
+    while True:
+        try:
+            await _node_pool.auto_populate()
+        except Exception:
+            pass
+        await _aio.sleep(6 * 3600)
 
 
 @app.get("/api/events")
@@ -1763,6 +1781,16 @@ def sdr_nodes_check():
     from dataclasses import asdict as _asdict
     statuses = node_pool.check_all()
     return {"statuses": [_asdict(s) for s in statuses]}
+
+
+@app.post("/api/sdr/nodes/discover")
+async def sdr_nodes_discover():
+    """Trigger an immediate refresh from the public KiwiSDR directory."""
+    from backend.sdr.kiwisdr_client import node_pool
+    before = len(node_pool.list_nodes())
+    added = await node_pool.auto_populate()
+    total = len(node_pool.list_nodes())
+    return {"added": added, "total": total}
 
 
 @app.get("/api/sdr/scan")

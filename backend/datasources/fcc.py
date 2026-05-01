@@ -2,6 +2,10 @@
 
 Queries the public FCC Universal Licensing System API for licensed transmitters
 near a given lat/lon — no API key required.
+
+Note: the /json path-segment form of the endpoint has been retired by the FCC.
+We try the dot-notation alternative; if both return 404 we silently return []
+since FCC data is supplementary, not critical to operation.
 """
 from __future__ import annotations
 
@@ -12,7 +16,10 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-_FCC_GEO_URL = "https://data.fcc.gov/api/license/searchByGeoSearch/json"
+_FCC_GEO_URLS = [
+    "https://data.fcc.gov/api/license/searchByGeoSearch.json",
+    "https://data.fcc.gov/api/license/searchByGeoSearch/json",
+]
 _TIMEOUT = 10.0
 
 
@@ -26,31 +33,37 @@ async def search_licenses_near(
 
     Each result dict includes: callsign, licensee_name, service, status,
     freq_low_mhz, freq_high_mhz, lat, lon, azimuth (where available).
-    Returns an empty list on network failure.
+    Returns an empty list on network failure or when FCC API is unavailable.
     """
     params = {
         "latitude": lat,
         "longitude": lon,
         "radiusInKm": radius_km,
         "limit": limit,
-        "format": "json",
     }
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.get(_FCC_GEO_URL, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-    except Exception as exc:
-        logger.warning("FCC ULS query failed: %s", exc)
-        return []
-
-    results = []
-    for lic in data.get("Licenses", {}).get("License", []) or []:
-        try:
-            results.append(_parse_license(lic))
-        except Exception:
-            continue
-    return results
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        for url in _FCC_GEO_URLS:
+            try:
+                resp = await client.get(url, params=params)
+                if resp.status_code == 404:
+                    logger.debug("FCC ULS endpoint 404 (retired): %s", url)
+                    continue
+                resp.raise_for_status()
+                data = resp.json()
+                results = []
+                for lic in data.get("Licenses", {}).get("License", []) or []:
+                    try:
+                        results.append(_parse_license(lic))
+                    except Exception:
+                        continue
+                return results
+            except httpx.HTTPStatusError as exc:
+                logger.warning("FCC ULS HTTP error %s: %s", exc.response.status_code, url)
+            except Exception as exc:
+                logger.warning("FCC ULS query failed: %s", exc)
+                return []
+    # All URLs returned 404 — endpoint is gone, no noise needed
+    return []
 
 
 def _parse_license(lic: dict[str, Any]) -> dict[str, Any]:
