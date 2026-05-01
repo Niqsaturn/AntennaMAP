@@ -120,12 +120,23 @@ def bearing_intersections(samples: list[TelemetrySample]) -> list[tuple[float, f
 
 def solve_weighted_least_squares(samples: list[TelemetrySample]) -> InferenceResult:
     inter = bearing_intersections(samples) or [(samples[0].lat, samples[0].lon)]
-    weights = np.array([uncertainty_weight(s) for s in samples])
-    if len(weights) < len(inter):
-        weights = np.pad(weights, (0, len(inter) - len(weights)), constant_values=weights.mean() if len(weights) else 1.0)
+    raw_weights = [uncertainty_weight(s) for s in samples]
+
+    # Build per-intersection weights: geometric mean of the two contributing sample weights
+    pair_weights: list[float] = []
+    n = len(samples)
+    for i in range(n):
+        for j in range(i + 1, n):
+            p = _line_intersection_from_bearings(samples[i], samples[j])
+            if p:
+                pair_weights.append(math.sqrt(raw_weights[i] * raw_weights[j]))
+    if not pair_weights:
+        pair_weights = [1.0]
+    w = np.array(pair_weights[: len(inter)])
+
     arr = np.array(inter)
-    w = weights[: len(inter)]
     center = np.average(arr, axis=0, weights=w)
+    mean_lat_rad = math.radians(float(center[0]))
 
     # Covariance requires ≥2 distinct points; fall back to identity when degenerate
     if len(inter) >= 2:
@@ -141,12 +152,19 @@ def solve_weighted_least_squares(samples: list[TelemetrySample]) -> InferenceRes
     eigvals, eigvecs = np.linalg.eigh(cov)
     order = np.argsort(eigvals)[::-1]
     eigvals, eigvecs = eigvals[order], eigvecs[:, order]
+
+    # Convert covariance axes to metres with correct cos(lat) scaling on lon
+    m_per_deg_lat = meters_per_deg_lat()
+    m_per_deg_lon = meters_per_deg_lon(math.degrees(mean_lat_rad))
+    ellipse_major_m = float(math.sqrt(max(eigvals[0], 0.0)) * m_per_deg_lat * 2)
+    ellipse_minor_m = float(math.sqrt(max(eigvals[1], 0.0)) * m_per_deg_lon * 2)
+
     return InferenceResult(
         center_lat=float(center[0]),
         center_lon=float(center[1]),
         covariance=cov.tolist(),
-        ellipse_major_m=float(math.sqrt(max(eigvals[0], 0.0)) * meters_per_deg_lat() * 2),
-        ellipse_minor_m=float(math.sqrt(max(eigvals[1], 0.0)) * meters_per_deg_lat() * 2),
+        ellipse_major_m=ellipse_major_m,
+        ellipse_minor_m=ellipse_minor_m,
         ellipse_angle_deg=float(math.degrees(math.atan2(eigvecs[1, 0], eigvecs[0, 0]))),
         quality_score=movement_geometry_quality(samples),
     )

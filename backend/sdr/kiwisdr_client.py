@@ -11,7 +11,10 @@ Multi-node scanning feeds RSSI observations into multilateration.
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 import math
+import socket
 import struct
 import threading
 import time
@@ -19,6 +22,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from statistics import mean
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 try:
     import websocket as _ws
@@ -190,7 +195,8 @@ class KiwiSdrClient:
             frames = self._recv_frames(count, ws)
             ws.close()
             return frames
-        except Exception:
+        except Exception as exc:
+            logger.debug("kiwisdr %s:%s read_frames: %s", self.host, self.port, exc)
             return []
 
     def read_rssi(self, freq_hz: float) -> float | None:
@@ -222,12 +228,21 @@ class KiwiSdrClient:
                 for p in raw_peaks
                 if p.snr_db >= min_snr_db
             ]
-        except Exception:
+        except Exception as exc:
+            logger.debug("kiwisdr %s:%s scan_peaks: %s", self.host, self.port, exc)
             return []
 
-    def check_reachable(self) -> bool:
-        frames = self.read_frames(count=1)
-        return len(frames) > 0
+    def check_reachable(self) -> tuple[bool, float | None]:
+        """TCP-probe the node. Returns (reachable, latency_ms)."""
+        t0 = time.monotonic()
+        try:
+            sock = socket.create_connection((self.host, self.port), timeout=3.0)
+            sock.close()
+            latency_ms = round((time.monotonic() - t0) * 1000, 1)
+            return True, latency_ms
+        except OSError as exc:
+            logger.debug("kiwisdr %s:%s unreachable: %s", self.host, self.port, exc)
+            return False, None
 
     def start_streaming(self, callback: Callable[[WaterfallFrame], None]) -> None:
         """Background-thread streaming: calls callback for each parsed frame."""
@@ -255,11 +270,12 @@ class KiwiSdrClient:
                                         self._frames = self._frames[-300:]
                                 try:
                                     callback(frame)
-                                except Exception:
-                                    pass
+                                except Exception as exc:
+                                    logger.warning("kiwisdr %s callback error: %s", self.host, exc)
                     ws.close()
-                except Exception:
+                except Exception as exc:
                     if self._running:
+                        logger.warning("kiwisdr %s stream reconnect: %s", self.host, exc)
                         time.sleep(3.0)
 
         self._thread = threading.Thread(target=_loop, daemon=True, name=f"kiwi-{self.host}")
@@ -364,6 +380,21 @@ class KiwiNodePool:
 
         def _query(node: dict) -> None:
             client = KiwiSdrClient(node["host"], node["port"])
+            frames = client.read_frames(count=4)
+            if frames:
+                avg_bins = [mean(f.bins_db[i] for f in frames) for i in range(_KIWI_BINS)]
+                try:
+                    from backend.foxhunt.auto_loop import event_bus
+                    event_bus.publish({
+                        "type": "sdr_frame",
+                        "node": node["host"],
+                        "bins": avg_bins,
+                        "center_freq_hz": _KIWI_PASSBAND_HZ / 2,
+                        "bw_hz": _KIWI_PASSBAND_HZ,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
+                except Exception:
+                    pass
             peaks = client.scan_peaks(min_snr_db)
             with peak_lock:
                 for p in peaks:
@@ -384,14 +415,14 @@ class KiwiNodePool:
         return all_peaks
 
     def check_all(self) -> list[NodeStatus]:
-        """Probe reachability of all configured nodes."""
+        """Probe reachability of all configured nodes via TCP."""
         nodes = self.list_nodes()
         statuses: list[NodeStatus] = []
         lock = threading.Lock()
 
         def _check(node: dict) -> None:
             client = KiwiSdrClient(node["host"], node["port"], timeout=4.0)
-            ok = client.check_reachable()
+            ok, latency_ms = client.check_reachable()
             with lock:
                 statuses.append(NodeStatus(
                     host=node["host"], port=node["port"],

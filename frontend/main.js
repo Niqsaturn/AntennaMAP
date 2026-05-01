@@ -474,6 +474,15 @@ map.on('load', async () => {
   setInterval(refreshCoverage, 60000);
   setInterval(refreshCalibration, 60000);
   setInterval(refreshUncertain, 60000);
+
+  // ── Fox hunt / waterfall / SSE initialization ─────────────────────────────
+  _addFoxSources();
+  _initWaterfall();
+  _refreshNodeList();
+  _refreshFoxStatus();
+  _connectSSE();
+  setInterval(_refreshFoxStatus, 15000);
+  setInterval(_refreshNodeList, 60000);
 });
 
 if (modelDropdown) {
@@ -500,6 +509,8 @@ const bearingSnrEl   = document.getElementById('bearingSnr');
 const confirmedList  = document.getElementById('confirmedList');
 const nodeList       = document.getElementById('nodeList');
 const nodeHostEl     = document.getElementById('nodeHost');
+const nodeLatEl      = document.getElementById('nodeLat');
+const nodeLonEl      = document.getElementById('nodeLon');
 const addNodeBtn     = document.getElementById('addNode');
 const checkNodesBtn  = document.getElementById('checkNodes');
 const waterfallCanvas= document.getElementById('waterfallCanvas');
@@ -800,7 +811,7 @@ async function _refreshNodeList() {
   const nodes = data.nodes || [];
   if (!nodeList) return;
   nodeList.innerHTML = nodes.map((n) =>
-    `<div class="node-item">
+    `<div class="node-item" data-hostport="${n.host}:${n.port}">
        <span class="node-dot unknown"></span>
        <span class="node-label">${n.host}:${n.port}${n.description ? ' — ' + n.description : ''}</span>
      </div>`
@@ -843,12 +854,16 @@ addNodeBtn?.addEventListener('click', async () => {
   if (!raw) return;
   const [host, portStr] = raw.split(':');
   const port = parseInt(portStr || '8073', 10);
+  const lat = nodeLatEl?.value ? parseFloat(nodeLatEl.value) : null;
+  const lon = nodeLonEl?.value ? parseFloat(nodeLonEl.value) : null;
   await fetch('/api/sdr/nodes', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ host, port }),
+    body: JSON.stringify({ host, port, lat, lon }),
   }).catch(() => {});
   if (nodeHostEl) nodeHostEl.value = '';
+  if (nodeLatEl) nodeLatEl.value = '';
+  if (nodeLonEl) nodeLonEl.value = '';
   await _refreshNodeList();
 });
 
@@ -856,9 +871,13 @@ checkNodesBtn?.addEventListener('click', async () => {
   if (checkNodesBtn) checkNodesBtn.textContent = 'Checking…';
   const data = await fetch('/api/sdr/nodes/check').then((r) => r.json()).catch(() => ({ statuses: [] }));
   const items = nodeList?.querySelectorAll('.node-item') || [];
-  (data.statuses || []).forEach((s, i) => {
-    const dot = items[i]?.querySelector('.node-dot');
-    if (dot) {
+  const statusByHost = {};
+  (data.statuses || []).forEach((s) => { statusByHost[`${s.host}:${s.port}`] = s; });
+  items.forEach((item) => {
+    const key = item.dataset.hostport;
+    const s = key ? statusByHost[key] : undefined;
+    const dot = item.querySelector('.node-dot');
+    if (dot && s) {
       dot.className = `node-dot ${s.reachable ? 'ok' : 'err'}`;
     }
   });
@@ -900,14 +919,3 @@ async function _refreshFoxStatus() {
     }
   } catch {}
 }
-
-// ── Map load hook — add fox sources after map is ready ─────────────────────
-map.on('load', () => {
-  _addFoxSources();
-  _initWaterfall();
-  _refreshNodeList();
-  _refreshFoxStatus();
-  _connectSSE();
-  setInterval(_refreshFoxStatus, 15000);
-  setInterval(_refreshNodeList, 60000);
-});

@@ -9,7 +9,7 @@ import json
 import math
 
 
-_PROC_NOISE_M = 50.0        # assumed static emitter positional drift (meters / cycle)
+_PROC_DRIFT_MPS = 1.0       # assumed maximum emitter drift velocity (m/s)
 _DEG_PER_M_LAT = 1.0 / 111_320.0
 _INIT_UNCERTAINTY_M = 5_000.0
 
@@ -41,9 +41,10 @@ class PositionKalman:
         self.P_lon = sigma_lon ** 2
 
     def predict(self, dt_seconds: float = 60.0) -> None:
-        """Propagate state forward — adds process noise (static emitter model)."""
-        q_lat = _m_to_deg_lat(_PROC_NOISE_M) ** 2
-        q_lon = _m_to_deg_lon(_PROC_NOISE_M, self.lat) ** 2
+        """Propagate state forward — process noise scales with dt (static emitter model)."""
+        sigma_pos_m = _PROC_DRIFT_MPS * dt_seconds
+        q_lat = _m_to_deg_lat(sigma_pos_m) ** 2
+        q_lon = _m_to_deg_lon(sigma_pos_m, self.lat) ** 2
         self.P_lat += q_lat
         self.P_lon += q_lon
 

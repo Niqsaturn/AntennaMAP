@@ -15,12 +15,15 @@ Events are published to a queue consumed by the SSE endpoint.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import threading
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from backend.foxhunt.multilateration import (
     BearingObs,
@@ -151,9 +154,26 @@ class AutoFoxHuntLoop:
 
     # ── External control ──────────────────────────────────────────────────────
 
-    def start(self, op_lat: float = 0.0, op_lon: float = 0.0) -> None:
+    def _start_idle(self) -> None:
+        """Start the background thread in IDLE state (thread alive, no scanning)."""
         if self._running:
             return
+        self._running = True
+        self._thread = threading.Thread(target=self._run_idle, daemon=True, name="foxhunt-idle")
+        self._thread.start()
+
+    def _run_idle(self) -> None:
+        """Keep thread alive in IDLE until start() is called."""
+        while self._running:
+            with self._lock:
+                state = self._state.state
+            if state != "IDLE":
+                self._run()
+                return
+            import time as _t
+            _t.sleep(1.0)
+
+    def start(self, op_lat: float = 0.0, op_lon: float = 0.0) -> None:
         with self._lock:
             self._op_lat = op_lat
             self._op_lon = op_lon
@@ -161,9 +181,10 @@ class AutoFoxHuntLoop:
                 state="SCANNING",
                 started_at=datetime.now(timezone.utc).isoformat(),
             )
-        self._running = True
-        self._thread = threading.Thread(target=self._run, daemon=True, name="foxhunt-auto")
-        self._thread.start()
+        if not self._running:
+            self._running = True
+            self._thread = threading.Thread(target=self._run, daemon=True, name="foxhunt-auto")
+            self._thread.start()
         _emit("fox_state", {"state": "SCANNING", "message": "Fox hunt started"})
 
     def stop(self) -> None:
@@ -392,6 +413,7 @@ class AutoFoxHuntLoop:
             if fix.confidence >= 0.3:
                 self._confirm_target(target)
         except Exception as exc:
+            logger.warning("auto_loop: solve failed: %s", exc)
             with self._lock:
                 self._state.state = "COLLECTING"
                 self._state.error = str(exc)
@@ -413,8 +435,8 @@ class AutoFoxHuntLoop:
         try:
             from backend.storage.map_store import upsert_feature
             upsert_feature(feature)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("auto_loop: upsert_feature failed: %s", exc)
 
         with self._lock:
             self._confirmed_freqs.add(target.freq_hz)

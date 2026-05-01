@@ -44,6 +44,13 @@ def bearing_uncertainty_deg(
     quality = _SDR_QUALITY.get(sdr_type.lower(), _SDR_QUALITY["default"])
     sigma_sdr = sigma_freq * quality
 
+    # Bandwidth penalty: narrowband CW → better coherent averaging; wideband → multipath spread
+    if bandwidth_hz > 0:
+        sigma_bw = max(0.5, min(2.0, math.sqrt(bandwidth_hz / 3000.0)))
+    else:
+        sigma_bw = 1.0
+    sigma_sdr *= sigma_bw
+
     # Poor movement geometry = observer barely moved = line-of-bearing uncertainty inflated
     geo_penalty = 1.0 if movement_geometry >= 0.5 else 1.0 + (0.5 - movement_geometry) * 1.0
     sigma = sigma_sdr * geo_penalty

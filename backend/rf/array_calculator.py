@@ -106,7 +106,7 @@ def linear_array_pattern(params: LinearArrayParams, n_points: int = 360) -> Arra
     lam = 3e8 / params.frequency_hz
     k = 2.0 * math.pi / lam
     d = params.element_spacing_m
-    theta_s = math.radians(params.steer_az_deg)
+    theta_s = math.radians(params.steering_angle_deg)
 
     weights = _window_weights(params.n_elements, params.window)
     angles = np.linspace(-90.0, 90.0, n_points)
@@ -122,17 +122,24 @@ def linear_array_pattern(params: LinearArrayParams, n_points: int = 360) -> Arra
     af_norm = af_mag / af_max
     pattern_db = 20.0 * np.log10(np.maximum(af_norm, 1e-10))
 
-    # Array gain = 10*log10(N) for uniform
-    array_gain_db = 10.0 * math.log10(params.n_elements)
+    # Array gain with taper efficiency: gain = 10·log10(N · |Σw|²/(N·Σ|w|²))
+    w_sum_sq = abs(sum(weights)) ** 2
+    w_sq_sum = float(np.sum(np.abs(weights) ** 2))
+    taper_efficiency = w_sum_sq / (params.n_elements * w_sq_sum) if w_sq_sum > 0 else 1.0
+    array_gain_db = 10.0 * math.log10(params.n_elements * taper_efficiency)
 
     # Find main beam
     peak_idx = int(np.argmax(pattern_db))
     main_beam_deg = float(angles[peak_idx])
 
-    # HPBW: angles where pattern ≥ -3 dB
-    above_3db = np.where(pattern_db >= -3.0)[0]
+    # HPBW: search only within ±60° of steering angle to stay in main lobe
+    steer_idx = int(np.argmin(np.abs(angles - params.steering_angle_deg)))
+    half_win = int(60.0 / (180.0 / n_points))
+    lo_idx = max(0, steer_idx - half_win)
+    hi_idx = min(n_points - 1, steer_idx + half_win)
+    above_3db = np.where(pattern_db[lo_idx:hi_idx + 1] >= -3.0)[0]
     if len(above_3db) >= 2:
-        hpbw = float(angles[above_3db[-1]] - angles[above_3db[0]])
+        hpbw = float(angles[lo_idx + above_3db[-1]] - angles[lo_idx + above_3db[0]])
     else:
         hpbw = float(180.0 / params.n_elements)
 
@@ -170,7 +177,8 @@ def planar_array_pattern(
     az_angles = np.linspace(-180.0, 180.0, n_az)
     el_angles = np.linspace(-90.0, 90.0, n_el)
 
-    sin_az_s = math.sin(math.radians(params.steer_az_deg))
+    cos_el_s = math.cos(math.radians(params.steer_el_deg))
+    sin_az_s = math.sin(math.radians(params.steer_az_deg)) * cos_el_s
     sin_el_s = math.sin(math.radians(params.steer_el_deg))
 
     pattern_2d = np.zeros((n_el, n_az))
@@ -201,7 +209,14 @@ def planar_array_pattern(
     side = list(range(0, max(0, peak_idx - main_w))) + \
            list(range(min(n_az, peak_idx + main_w), n_az))
     first_sll = float(np.max(az_cut_db[side])) if side else -13.0
-    array_gain_db = 10.0 * math.log10(params.n_x * params.n_y)
+    n_total = params.n_x * params.n_y
+    wx_sum_sq = abs(float(np.sum(wx))) ** 2
+    wy_sum_sq = abs(float(np.sum(wy))) ** 2
+    wx_sq_sum = float(np.sum(np.abs(wx) ** 2))
+    wy_sq_sum = float(np.sum(np.abs(wy) ** 2))
+    taper_eff_x = wx_sum_sq / (params.n_x * wx_sq_sum) if wx_sq_sum > 0 else 1.0
+    taper_eff_y = wy_sum_sq / (params.n_y * wy_sq_sum) if wy_sq_sum > 0 else 1.0
+    array_gain_db = 10.0 * math.log10(n_total * taper_eff_x * taper_eff_y)
 
     return ArrayPatternResult(
         angles_deg=az_angles.tolist(),

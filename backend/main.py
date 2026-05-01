@@ -281,19 +281,21 @@ def _default_sdr_config() -> dict:
 app = FastAPI(title="AntennaMAP API", version="0.1.0")
 
 
-def _mock_adapter_fetcher() -> list[dict]:
-    return []
+def _kiwi_adapter_fetcher() -> list[dict]:
+    """Fetch SDR frames from all configured KiwiSDR nodes."""
+    from backend.sdr.kiwisdr_client import node_pool
+    return node_pool.scan_peaks_all(min_snr_db=3.0)
 
 
 sdr_service = SDRIngestService(
-    adapter_fetcher=_mock_adapter_fetcher,
+    adapter_fetcher=_kiwi_adapter_fetcher,
     storage=SDRStoragePaths(
         raw_jsonl=ROOT / "backend" / "ingest" / "data" / "sdr_raw.jsonl",
         aggregates_jsonl=ROOT / "backend" / "ingest" / "data" / "sdr_aggregates.jsonl",
         reject_jsonl=ROOT / "backend" / "ingest" / "data" / "sdr_rejected.jsonl",
         sqlite_file=ROOT / "backend" / "ingest" / "data" / "sdr_ingest.sqlite3",
     ),
-    poll_interval_s=1.0,
+    poll_interval_s=15.0,
 )
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -1680,6 +1682,17 @@ async def _capture_loop() -> None:
     _app_loop = _asyncio.get_event_loop()
     from backend.foxhunt.auto_loop import event_bus
     event_bus.set_loop(_app_loop)
+    # Start SDR ingest service with real KiwiSDR fetcher
+    try:
+        sdr_service.start()
+    except Exception:
+        pass
+    # Start auto_loop background thread in IDLE state so SSE/event bus is live
+    from backend.foxhunt.auto_loop import auto_loop as _auto_loop
+    try:
+        _auto_loop._start_idle()
+    except Exception:
+        pass
 
 
 @app.get("/api/events")
