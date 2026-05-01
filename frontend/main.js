@@ -557,6 +557,9 @@ const bearingRayToggle = document.getElementById('bearingRayToggle');
 const waterfallHeader = document.getElementById('waterfallHeader');
 const waterfallContainer = document.getElementById('waterfallContainer');
 const peakListHeader = document.getElementById('peakListHeader');
+const autoHuntToggle = document.getElementById('autoHuntToggle');
+const autoPolicyPhase = document.getElementById('autoPolicyPhase');
+let _autoHuntEnabled = false;
 
 // ── Waterfall state ───────────────────────────────────────────────────────
 const WF_BINS = 1024;
@@ -759,7 +762,7 @@ function _handleSseEvent(ev) {
       _bearingObs.push({ lat: ev.lat, lon: ev.lon, bearing_deg: ev.bearing_deg });
       _updateBearingRaySource();
       if (foxObsCount)
-        foxObsCount.textContent = `${ev.total_bearings} bearing(s) logged`;
+        foxObsCount.textContent = `${ev.total_bearings} bearing(s) logged${ev.source ? ` · ${ev.source}` : ''}`;
       break;
 
     case 'estimate_updated': {
@@ -901,8 +904,25 @@ addBearingBtn?.addEventListener('click', async () => {
   await fetch('/api/foxhunt/auto/observe', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ bearing_deg: bearing, snr_db: snr, lat, lon }),
+    body: JSON.stringify({ bearing_deg: bearing, snr_db: snr, lat, lon, source: 'manual' }),
   }).catch(() => {});
+});
+
+autoHuntToggle?.addEventListener('click', async () => {
+  const lat = parseFloat(foxLatEl?.value || '0');
+  const lon = parseFloat(foxLonEl?.value || '0');
+  if (!_autoHuntEnabled) {
+    await fetch('/api/foxhunt/autonomous/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat, lon }),
+    }).catch(() => {});
+    _autoHuntEnabled = true;
+  } else {
+    await fetch('/api/foxhunt/autonomous/stop', { method: 'POST' }).catch(() => {});
+    _autoHuntEnabled = false;
+  }
+  autoHuntToggle.textContent = `Auto Hunt: ${_autoHuntEnabled ? 'ON' : 'OFF'}`;
 });
 
 rediscoverBtn?.addEventListener('click', async () => {
@@ -965,6 +985,16 @@ async function _refreshFoxStatus() {
       if (foxTargetFreq) foxTargetFreq.textContent = `${(s.target.freq_hz / 1e6).toFixed(3)} MHz`;
       if (foxTargetMeta) foxTargetMeta.textContent = `${s.target.band_label} · ${s.target.modulation_hint}`;
       if (foxObsCount) foxObsCount.textContent = `${s.target.bearing_obs_count} bearing(s) · ${s.target.rssi_obs_count} RSSI`;
+    }
+    if (_autoHuntEnabled) {
+      const cycle = await fetch('/api/foxhunt/autonomous/cycle', { method: 'POST' }).then((r) => r.json()).catch(() => null);
+      if (cycle?.phase && autoPolicyPhase) autoPolicyPhase.textContent = `Policy phase: ${cycle.phase}`;
+    }
+    const auto = await fetch('/api/foxhunt/autonomous/status').then((r) => r.json()).catch(() => null);
+    if (auto?.policy) {
+      _autoHuntEnabled = Boolean(auto.policy.running);
+      if (autoHuntToggle) autoHuntToggle.textContent = `Auto Hunt: ${_autoHuntEnabled ? 'ON' : 'OFF'}`;
+      if (autoPolicyPhase) autoPolicyPhase.textContent = `Policy phase: ${auto.policy.phase || 'IDLE'}`;
     }
   } catch {}
 }

@@ -62,6 +62,7 @@ class BearingObs:
     snr_db: float
     freq_hz: float
     sigma_deg: float | None = None  # None → computed from SNR + frequency model
+    source: str = "manual"
 
 
 @dataclass

@@ -203,6 +203,7 @@ class AutoFoxHuntLoop:
         bearing_deg: float,
         snr_db: float,
         freq_hz: float | None = None,
+        source: str = "manual",
     ) -> dict:
         """Add a manual bearing reading from the operator's current position."""
         with self._lock:
@@ -215,13 +216,14 @@ class AutoFoxHuntLoop:
                 lat=self._op_lat, lon=self._op_lon,
                 bearing_deg=bearing_deg, snr_db=snr_db,
                 freq_hz=obs_freq,
+                source=source,
             )
             target.bearing_obs.append(obs)
             n = len(target.bearing_obs)
         _emit("bearing_added", {
             "lat": self._op_lat, "lon": self._op_lon,
             "bearing_deg": bearing_deg, "snr_db": snr_db,
-            "freq_hz": obs_freq, "total_bearings": n,
+            "freq_hz": obs_freq, "total_bearings": n, "source": source,
         })
         # Trigger solve if we have enough geometry
         if n >= self.min_obs_to_solve:
