@@ -11,6 +11,7 @@ const _DARK_STYLE = {
     },
   },
   layers: [
+    // Keep schema-safe base ordering: background first, then raster/vector layers only.
     { id: 'background', type: 'background', paint: { 'background-color': '#0f172a' } },
     { id: 'osm', type: 'raster', source: 'osm-tiles', paint: { 'raster-opacity': 0.55, 'raster-saturation': -0.7, 'raster-brightness-min': 0.05 } },
   ],
