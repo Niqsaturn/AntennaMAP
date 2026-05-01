@@ -32,21 +32,17 @@ const map = new maplibregl.Map({
 let _spinActive = true;
 let _spinResumeTimer = null;
 function _spinGlobe() {
-  if (_spinActive && map.getZoom() < 5) {
-    map.setCenter([map.getCenter().lng + 0.06, map.getCenter().lat]);
+  try {
+    if (_spinActive && map.getZoom() < 5) {
+      map.setCenter([map.getCenter().lng + 0.06, map.getCenter().lat]);
+    }
+  } catch (e) {
+    // silently fail spin on globe mode
   }
   requestAnimationFrame(_spinGlobe);
 }
-map.once('load', () => {
-  requestAnimationFrame(_spinGlobe);
-  map.setFog({
-    color: 'rgba(15,23,42,0.85)',
-    'high-color': '#1e3a5f',
-    'horizon-blend': 0.04,
-    'space-color': '#0f172a',
-    'star-intensity': 0.35,
-  });
-});
+
+// Pause spin on user interaction
 ['mousedown', 'touchstart', 'wheel'].forEach((evt) =>
   map.on(evt, () => {
     _spinActive = false;
@@ -373,10 +369,24 @@ async function refreshUncertain() {
 
 // ── Map load ───────────────────────────────────────────────────────────────
 map.on('load', async () => {
+  // Setup globe fog and spin
+  try {
+    map.setFog({
+      color: 'rgba(15,23,42,0.85)',
+      'high-color': '#1e3a5f',
+      'horizon-blend': 0.04,
+      'space-color': '#0f172a',
+      'star-intensity': 0.35,
+    });
+    requestAnimationFrame(_spinGlobe);
+  } catch (e) {
+    console.warn('fog setup skipped:', e.message);
+  }
+
   map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
   // Seed GeoJSON features from API
-  const seed = await fetch('/api/features').then((r) => r.json());
+  const seed = await fetch('/api/features').then((r) => r.json()).catch(() => ({ features: [] }));
   sortedTimes = [...new Set(seed.features.map((f) => f.properties.timestamp))].filter(Boolean).sort();
 
   // ── Sources ──────────────────────────────────────────────────────────────
