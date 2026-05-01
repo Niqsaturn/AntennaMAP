@@ -155,7 +155,7 @@ def solve_weighted_least_squares(samples: list[TelemetrySample]) -> InferenceRes
 
     # Convert covariance axes to metres with correct cos(lat) scaling on lon
     m_per_deg_lat = meters_per_deg_lat()
-    m_per_deg_lon = meters_per_deg_lon(math.degrees(mean_lat_rad))
+    m_per_deg_lon = meters_per_deg_lon(float(center[0]))
     ellipse_major_m = float(math.sqrt(max(eigvals[0], 0.0)) * m_per_deg_lat * 2)
     ellipse_minor_m = float(math.sqrt(max(eigvals[1], 0.0)) * m_per_deg_lon * 2)
 
@@ -200,7 +200,23 @@ def predict_error(model: dict[str, Any], samples: list[TelemetrySample]) -> floa
     return float(np.dot(x, np.array(model["weights"])) + model["bias"])
 
 def parse_samples(payload: list[dict[str, Any]]) -> list[TelemetrySample]:
-    return [TelemetrySample(**row) for row in payload]
+    """Parse dicts into TelemetrySample objects with defensive defaults."""
+    samples = []
+    for row in payload:
+        try:
+            samples.append(TelemetrySample(
+                timestamp=row.get("timestamp", ""),
+                lat=float(row.get("lat", 0.0)),
+                lon=float(row.get("lon", 0.0)),
+                bearing_deg=float(row.get("bearing_deg", 0.0)),
+                frequency_hz=float(row.get("frequency_hz", 100e6)),
+                bandwidth_hz=float(row.get("bandwidth_hz", 3000.0)),
+                snr_db=float(row.get("snr_db", 10.0)),
+            ))
+        except (KeyError, ValueError, TypeError) as e:
+            logger.warning("skipping malformed sample: %s", e)
+            continue
+    return samples
 
 
 def estimate_bearing_uncertainty(

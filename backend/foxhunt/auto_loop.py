@@ -210,6 +210,7 @@ class AutoFoxHuntLoop:
             if target is None:
                 return {"ok": False, "reason": "no active target"}
             obs_freq = freq_hz or target.freq_hz
+            bearing_deg = bearing_deg % 360.0
             obs = BearingObs(
                 lat=self._op_lat, lon=self._op_lon,
                 bearing_deg=bearing_deg, snr_db=snr_db,
