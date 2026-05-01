@@ -1,7 +1,24 @@
+const _DARK_STYLE = {
+  version: 8,
+  name: 'dark',
+  sources: {
+    'osm-tiles': {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '© OpenStreetMap contributors',
+    },
+  },
+  layers: [
+    { id: 'background', type: 'background', paint: { 'background-color': '#0f172a' } },
+    { id: 'osm', type: 'raster', source: 'osm-tiles', paint: { 'raster-opacity': 0.55, 'raster-saturation': -0.7, 'raster-brightness-min': 0.05 } },
+  ],
+};
+
 const map = new maplibregl.Map({
   container: 'map',
-  style: 'https://demotiles.maplibre.org/style.json',
-  center: [-80.27, 25.97], zoom: 11, pitch: 58, bearing: -20, antialias: true,
+  style: _DARK_STYLE,
+  center: [-80.27, 25.97], zoom: 11, pitch: 0, bearing: 0, antialias: true,
 });
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
