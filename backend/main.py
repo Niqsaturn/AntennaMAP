@@ -1823,6 +1823,7 @@ class FoxBearingRequest(BaseModel):
     freq_hz: float | None = None
     lat: float | None = None   # override operator position
     lon: float | None = None
+    source: str = "manual"
 
 
 class FoxMultilatRequest(BaseModel):
@@ -1859,8 +1860,40 @@ def foxhunt_add_bearing(req: FoxBearingRequest):
     from backend.foxhunt.auto_loop import auto_loop
     if req.lat is not None and req.lon is not None:
         auto_loop.update_operator_position(req.lat, req.lon)
-    result = auto_loop.add_bearing_observation(req.bearing_deg, req.snr_db, req.freq_hz)
+    result = auto_loop.add_bearing_observation(req.bearing_deg, req.snr_db, req.freq_hz, req.source)
     return result
+
+
+@app.post("/api/foxhunt/autonomous/start")
+def foxhunt_autonomous_start(req: FoxHuntStartRequest):
+    from backend.foxhunt.auto_loop import auto_loop
+    from backend.foxhunt.policy import auto_policy
+    auto_loop.scan_interval_s = req.scan_interval_s
+    auto_loop.min_obs_to_solve = req.min_obs_to_solve
+    auto_loop.start(req.lat, req.lon)
+    return {"ok": True, "loop": auto_loop.status(), "policy": auto_policy.start()}
+
+
+@app.post("/api/foxhunt/autonomous/stop")
+def foxhunt_autonomous_stop():
+    from backend.foxhunt.auto_loop import auto_loop
+    from backend.foxhunt.policy import auto_policy
+    auto_policy.stop()
+    auto_loop.stop()
+    return {"ok": True, "policy": auto_policy.status(), "loop": auto_loop.status()}
+
+
+@app.get("/api/foxhunt/autonomous/status")
+def foxhunt_autonomous_status():
+    from backend.foxhunt.auto_loop import auto_loop
+    from backend.foxhunt.policy import auto_policy
+    return {"loop": auto_loop.status(), "policy": auto_policy.status()}
+
+
+@app.post("/api/foxhunt/autonomous/cycle")
+def foxhunt_autonomous_cycle():
+    from backend.foxhunt.policy import auto_policy
+    return auto_policy.execute_cycle()
 
 
 @app.post("/api/foxhunt/auto/position")
