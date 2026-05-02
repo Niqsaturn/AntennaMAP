@@ -62,6 +62,7 @@ const bayesToggle     = document.getElementById('bayesToggle');
 const timeRange       = document.getElementById('timeRange');
 const timeLabel       = document.getElementById('timeLabel');
 const loopStatus        = document.getElementById('loopStatus');
+const loopDebugStatus   = document.getElementById('loopDebugStatus');
 const sdrStatus         = document.getElementById('sdrStatus');
 const coverageStatus    = document.getElementById('coverageStatus');
 const calibrationStatus = document.getElementById('calibrationStatus');
@@ -166,12 +167,24 @@ async function refreshLoopStatus() {
   try {
     const s = await fetch('/api/loop/status').then((r) => r.json());
     const last = s.last_run?.last_successful_run_at ?? 'never';
+    const m = s.cycle_metrics || {};
     loopStatus.innerHTML =
       `<strong>Loop:</strong> ${s.active ? 'running' : 'paused'} · ` +
       `<strong>Provider:</strong> ${s.config.provider} · ` +
       `<strong>Model:</strong> ${s.config.model || '-'}<br>` +
       `<strong>Interval:</strong> ${s.config.interval_seconds}s · ` +
       `<strong>Last OK:</strong> ${last.slice(0, 19).replace('T', ' ')}`;
+    if (loopDebugStatus) {
+      const reasons = (m.solver_failure_reasons || []).slice(0, 3).join(', ') || 'none';
+      const frameAgeSec = Number.isFinite(m.last_waterfall_frame_age_ms) ? (m.last_waterfall_frame_age_ms / 1000).toFixed(1) : '-';
+      loopDebugStatus.innerHTML =
+        `<strong>Cycle:</strong> #${m.cycle_index ?? '-'} · phase ${m.cycle_phase || '-'}<br>` +
+        `<strong>Waterfall:</strong> ${m.live_frame_rate_fps ?? 0} fps · age ${frameAgeSec}s<br>` +
+        `<strong>Counts:</strong> det ${m.detections ?? 0} · cand ${m.candidates ?? 0} · tracks ${m.tracks ?? 0}<br>` +
+        `<strong>Solver:</strong> attempts ${m.solver_attempts ?? 0} · ok ${m.solver_successes ?? 0} · fail ${m.solver_failures ?? 0} (${reasons})<br>` +
+        `<strong>AI corrections:</strong> applied ${m.ai_corrections_applied ?? 0} · rejected ${m.ai_corrections_rejected ?? 0}<br>` +
+        `<strong>Map publish:</strong> ${m.map_publish_count ?? 0} · p50 ${m.map_publish_latency_ms_p50 ?? 0}ms · p95 ${m.map_publish_latency_ms_p95 ?? 0}ms`;
+    }
   } catch (_) { loopStatus.textContent = 'Loop: unavailable'; }
 }
 
