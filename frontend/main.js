@@ -67,6 +67,7 @@ const coverageStatus    = document.getElementById('coverageStatus');
 const calibrationStatus = document.getElementById('calibrationStatus');
 const featureHealthStatus = document.getElementById('featureHealthStatus');
 const renderHealthStatus = document.getElementById('renderHealthStatus');
+const sdrEventStatus = document.getElementById('sdrEventStatus');
 const modelDropdown   = document.getElementById('modelSelect');
 const satGroupSelect  = document.getElementById('satGroup');
 const analyzeBtn      = document.getElementById('analyzeNow');
@@ -173,6 +174,20 @@ async function refreshLoopStatus() {
       `<strong>Interval:</strong> ${s.config.interval_seconds}s · ` +
       `<strong>Last OK:</strong> ${last.slice(0, 19).replace('T', ' ')}`;
   } catch (_) { loopStatus.textContent = 'Loop: unavailable'; }
+}
+
+async function refreshSystemStatus() {
+  if (!sdrEventStatus) return;
+  try {
+    const s = await fetch('/api/status').then((r) => r.json());
+    const stats = s.sdr_events || {};
+    const last = stats.last_frame_timestamp ? stats.last_frame_timestamp.slice(0, 19).replace('T', ' ') : 'never';
+    sdrEventStatus.innerHTML =
+      `<strong>SDR events:</strong> ${stats.frames_emitted ?? 0} emitted · ` +
+      `${stats.schema_rejects ?? 0} rejected<br><strong>Last frame:</strong> ${last}`;
+  } catch (_) {
+    sdrEventStatus.textContent = 'SDR events: unavailable';
+  }
 }
 
 // ── Model Dropdown ─────────────────────────────────────────────────────────
@@ -611,6 +626,7 @@ map.on('load', async () => {
   refreshSource();
   refreshLoopStatus();
   refreshSdrStatus();
+  refreshSystemStatus();
   populateModelDropdown();
   refreshSpeculative();
   refreshAnalysisLog();
@@ -620,6 +636,7 @@ map.on('load', async () => {
   // ── Polling intervals ─────────────────────────────────────────────────────
   setInterval(refreshLoopStatus, 10000);
   setInterval(refreshSdrStatus, 30000);
+  setInterval(refreshSystemStatus, 10000);
   setInterval(refreshSpeculative, 15000);
   setInterval(refreshAnalysisLog, 30000);
   setInterval(refreshCoverage, 60000);

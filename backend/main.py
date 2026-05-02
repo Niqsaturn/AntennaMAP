@@ -812,6 +812,16 @@ def health() -> dict:
     return {"status": "ok", "service": "antennamap", **policy_status()}
 
 
+@app.get("/api/status")
+def status() -> dict:
+    from backend.foxhunt.auto_loop import event_bus
+    return {
+        "status": "ok",
+        "service": "antennamap",
+        "sdr_events": event_bus.sdr_stats(),
+    }
+
+
 @app.post("/api/loop/pause")
 def pause_loop() -> dict:
     return loop_manager.stop()
