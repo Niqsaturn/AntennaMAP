@@ -77,6 +77,30 @@ def test_controller_tracks_quality_and_recency_per_band_for_scheduler_rebalancin
     state = service.quality_state()
     assert "wide" in state
     assert state["wide"]["frame_count"] > 0
+    assert state["wide"]["visits"] > 0
     assert state["wide"]["quality"] >= 0.0
     assert state["wide"]["last_seen_at"] is not None
     assert state["wide"]["recency_seconds"] >= 0.0
+
+
+def test_controller_uses_capability_min_max_range_for_legal_scan_windows():
+    emitted: list[dict] = []
+    adapter = DummyAdapter(
+        config={
+            "sample_rate_hz": 2e6,
+            "max_span_hz": 2e6,
+            "capabilities": {"min_freq_hz": 50e6, "max_freq_hz": 56e6},
+        }
+    )
+
+    service = SdrControllerService(adapter, emitted.append, dwell_seconds=0.001)
+    result = service.process_once()
+
+    assert result["planned_centers"] == 3
+    assert emitted
+    first = emitted[0]
+    assert first["capabilities"]["min_freq_hz"] == 50e6
+    assert first["capabilities"]["max_freq_hz"] == 56e6
+    centers = [obs["center_freq_hz"] for obs in emitted]
+    assert min(centers) >= 50e6
+    assert max(centers) <= 56e6
