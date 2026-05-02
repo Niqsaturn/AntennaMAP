@@ -55,6 +55,7 @@ const spectToggle     = document.getElementById('spectToggle');
 const rayToggle       = document.getElementById('rayToggle');
 const sectorToggle    = document.getElementById('sectorToggle');
 const confidenceToggle= document.getElementById('confidenceToggle');
+const rangeBandToggle = document.getElementById('rangeBandToggle');
 const coverageToggle  = document.getElementById('coverageToggle');
 const satelliteToggle = document.getElementById('satelliteToggle');
 const bayesToggle     = document.getElementById('bayesToggle');
@@ -131,6 +132,7 @@ function cutoffFromSlider() {
 
 const popupHtml = (p) => {
   const conf = p.confidence != null ? `<br>Confidence: ${(p.confidence * 100).toFixed(0)}%` : '';
+  const overlayAssumptions = `<br>Assumptions: range from RSSI/SNR + propagation model; single-source geometry shown as likelihood, not fixed point.`;
   const count = p.analysis_count != null ? ` (${p.analysis_count} obs)` : '';
   const source = p.source ? `<br>Source: ${p.source}` : '';
   const notes = p.notes ? `<br>Notes: ${p.notes}` : '';
@@ -139,7 +141,7 @@ const popupHtml = (p) => {
     : '';
   return `<strong>${p.name || p.id}</strong><br>Kind: ${p.kind}${conf}${count}` +
     `<br>Freq: ${p.freq_band || '-'}<br>Type: ${p.antenna_type || p.structure_type || '-'}` +
-    `<br>Azimuth: ${p.azimuth_deg ?? '-'}°${source}${notes}${confirmRow}`;
+    `<br>Azimuth: ${p.azimuth_deg ?? '-'}°${source}${notes}${overlayAssumptions}${confirmRow}`;
 };
 
 // ── SDR Status ─────────────────────────────────────────────────────────────
@@ -222,21 +224,27 @@ async function refreshSource() {
       (f.properties.kind === 'estimate' && estToggle?.checked)
     );
 
-  const rays = [], sectors = [], confidence = [];
+  const rays = [], sectors = [], confidence = [], rangeBands = [], uncertaintyPolygons = [];
   visibleSites.forEach((f) => {
     const o = f.properties.overlay_geometries || {};
     const ray = asFeature(f, o.direction_ray, 'direction_ray');
     const sector = asFeature(f, o.sector_wedge, 'sector_wedge');
     const ellipse = asFeature(f, o.confidence_ellipse, 'confidence_ellipse');
+    const rangeBand = asFeature(f, o.range_likely_band, 'range_likely_band');
+    const uncertainty = asFeature(f, o.uncertainty_polygon, 'uncertainty_polygon');
     if (ray) rays.push(ray);
     if (sector) sectors.push(sector);
     if (ellipse) confidence.push(ellipse);
+    if (rangeBand) rangeBands.push(rangeBand);
+    if (uncertainty) uncertaintyPolygons.push(uncertainty);
   });
 
     _safeSetSourceData('sites', { type: 'FeatureCollection', features: visibleSites }, 'features');
     _safeSetSourceData('rays', { type: 'FeatureCollection', features: rayToggle?.checked ? rays : [] }, 'features');
     _safeSetSourceData('sectors', { type: 'FeatureCollection', features: sectorToggle?.checked ? sectors : [] }, 'features');
     _safeSetSourceData('confidence', { type: 'FeatureCollection', features: confidenceToggle?.checked ? confidence : [] }, 'features');
+    _safeSetSourceData('range-bands', { type: 'FeatureCollection', features: rangeBandToggle?.checked ? rangeBands : [] }, 'features');
+    _safeSetSourceData('uncertainty-polygons', { type: 'FeatureCollection', features: confidenceToggle?.checked ? uncertaintyPolygons : [] }, 'features');
     _renderHealth();
   } catch (err) {
     health.render.features = `error: ${err.message}`;
@@ -256,12 +264,14 @@ async function refreshSpeculative() {
     const data = await fetch(url).then((r) => r.json());
     health.counts.speculative = (data.features || []).length;
 
-    const rays = [], sectors = [], ellipses = [];
+    const rays = [], sectors = [], ellipses = [], rangeBands = [], uncertaintyPolygons = [];
     (data.features || []).forEach((f) => {
       const o = f.properties.overlay_geometries || {};
       if (o.direction_ray) rays.push(asFeature(f, o.direction_ray, 'direction_ray'));
       if (o.sector_wedge) sectors.push(asFeature(f, o.sector_wedge, 'sector_wedge'));
       if (o.confidence_ellipse) ellipses.push(asFeature(f, o.confidence_ellipse, 'confidence_ellipse'));
+      if (o.range_likely_band) rangeBands.push(asFeature(f, o.range_likely_band, 'range_likely_band'));
+      if (o.uncertainty_polygon) uncertaintyPolygons.push(asFeature(f, o.uncertainty_polygon, 'uncertainty_polygon'));
     });
 
     _safeSetSourceData('speculative', {
@@ -271,6 +281,8 @@ async function refreshSpeculative() {
     _safeSetSourceData('spec-rays', { type: 'FeatureCollection', features: rayToggle.checked ? rays : [] }, 'speculative');
     _safeSetSourceData('spec-sectors', { type: 'FeatureCollection', features: sectorToggle.checked ? sectors : [] }, 'speculative');
     _safeSetSourceData('spec-ellipses', { type: 'FeatureCollection', features: confidenceToggle.checked ? ellipses : [] }, 'speculative');
+    _safeSetSourceData('spec-range-bands', { type: 'FeatureCollection', features: rangeBandToggle.checked ? rangeBands : [] }, 'speculative');
+    _safeSetSourceData('spec-uncertainty-polygons', { type: 'FeatureCollection', features: confidenceToggle.checked ? uncertaintyPolygons : [] }, 'speculative');
   } catch (err) {
     health.render.speculative = `error: ${err.message}`;
   } finally { _renderHealth(); }
@@ -476,10 +488,14 @@ map.on('load', async () => {
   map.addSource('rays',       { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('sectors',    { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('confidence', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('range-bands', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('uncertainty-polygons', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('speculative',{ type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('spec-rays',  { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('spec-sectors',{ type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('spec-ellipses',{ type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('spec-range-bands',{ type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('spec-uncertainty-polygons',{ type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('coverage',             { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('satellites',           { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('speculative-uncertain',{ type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -497,12 +513,20 @@ map.on('load', async () => {
     paint: { 'fill-color': '#7ac37a', 'fill-opacity': 0.2 } });
   map.addLayer({ id: 'confidence-layer',type: 'fill', source: 'confidence',
     paint: { 'fill-color': '#ffc857', 'fill-opacity': 0.2 } });
+  map.addLayer({ id: 'range-band-layer',type: 'fill', source: 'range-bands',
+    paint: { 'fill-color': '#38bdf8', 'fill-opacity': 0.12 } });
+  map.addLayer({ id: 'uncertainty-polygon-layer',type: 'line', source: 'uncertainty-polygons',
+    paint: { 'line-color': '#f59e0b', 'line-width': 1.5, 'line-dasharray': [2, 2] } });
 
   // ── Layers - speculative ─────────────────────────────────────────────────
   map.addLayer({ id: 'spec-sector-layer', type: 'fill', source: 'spec-sectors',
     paint: { 'fill-color': '#c084fc', 'fill-opacity': 0.15 } });
   map.addLayer({ id: 'spec-ellipse-layer', type: 'fill', source: 'spec-ellipses',
     paint: { 'fill-color': '#c084fc', 'fill-opacity': 0.12 } });
+  map.addLayer({ id: 'spec-range-band-layer', type: 'fill', source: 'spec-range-bands',
+    paint: { 'fill-color': '#a78bfa', 'fill-opacity': 0.1 } });
+  map.addLayer({ id: 'spec-uncertainty-polygon-layer', type: 'line', source: 'spec-uncertainty-polygons',
+    paint: { 'line-color': '#e879f9', 'line-width': 1.2, 'line-dasharray': [2, 2] } });
   map.addLayer({ id: 'spec-ray-layer', type: 'line', source: 'spec-rays',
     paint: { 'line-color': '#c084fc', 'line-width': 1.5, 'line-dasharray': [4, 2] } });
   map.addLayer({ id: 'speculative-layer', type: 'circle', source: 'speculative',
@@ -555,7 +579,7 @@ map.on('load', async () => {
   });
 
   // ── Toggle listeners ─────────────────────────────────────────────────────
-  [infraToggle, estToggle, rayToggle, sectorToggle, confidenceToggle, timeRange].forEach(
+  [infraToggle, estToggle, rayToggle, sectorToggle, confidenceToggle, rangeBandToggle, timeRange].forEach(
     (el) => el?.addEventListener('input', refreshSource)
   );
   spectToggle?.addEventListener('change', refreshSpeculative);
