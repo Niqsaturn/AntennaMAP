@@ -30,6 +30,9 @@ class SdrControllerService:
         max_dwell_seconds: float = 2.0,
         quality_weight: float = 0.7,
         recency_weight: float = 0.3,
+        novelty_weight: float = 0.35,
+        persistence_weight: float = 0.35,
+        uncertainty_weight: float = 0.3,
     ) -> None:
         self._adapter = adapter
         self._sink = observation_sink
@@ -38,19 +41,43 @@ class SdrControllerService:
         self._max_dwell_seconds = max_dwell_seconds
         self._quality_weight = quality_weight
         self._recency_weight = recency_weight
+        self._novelty_weight = novelty_weight
+        self._persistence_weight = persistence_weight
+        self._uncertainty_weight = uncertainty_weight
         self._capabilities = self._read_capabilities()
         self._bands = self._build_sweep_bands()
         self._band_state: dict[str, dict[str, Any]] = {
-            band.name: {"quality": 0.5, "last_seen_at": None, "frames": 0} for band in self._bands
+            band.name: {
+                "quality": 0.5,
+                "last_seen_at": None,
+                "frames": 0,
+                "visits": 0,
+                "quality_delta_ema": 0.0,
+                "last_cycle_seen": -1,
+            }
+            for band in self._bands
         }
+        self._cycle_index = 0
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._running = False
 
     def _read_capabilities(self) -> dict[str, Any]:
+        capabilities = self._adapter.config.get("capabilities") or {}
         center = self._adapter.config.get("center_freq_hz")
         sample_rate = self._adapter.config.get("sample_rate_hz")
+
+        min_freq_hz = capabilities.get("min_freq_hz", self._adapter.config.get("min_freq_hz"))
+        max_freq_hz = capabilities.get("max_freq_hz", self._adapter.config.get("max_freq_hz"))
         band_limits = self._adapter.config.get("band_limits_hz")
+        if not band_limits and min_freq_hz is not None and max_freq_hz is not None:
+            band_limits = [
+                {
+                    "name": "full-range",
+                    "start_hz": float(min_freq_hz),
+                    "end_hz": float(max_freq_hz),
+                }
+            ]
 
         if not band_limits:
             if center and sample_rate:
@@ -61,6 +88,8 @@ class SdrControllerService:
 
         return {
             "band_limits_hz": band_limits,
+            "min_freq_hz": min(float(b["start_hz"]) for b in band_limits),
+            "max_freq_hz": max(float(b["end_hz"]) for b in band_limits),
             "max_span_hz": float(self._adapter.config.get("max_span_hz", sample_rate or 2.4e6)),
             "waterfall_resolution_bins": int(self._adapter.config.get("waterfall_resolution_bins", 64)),
         }
@@ -84,11 +113,25 @@ class SdrControllerService:
         return max((datetime.now(timezone.utc) - last_seen).total_seconds(), 0.0)
 
     def _next_band(self) -> SweepBand:
-        ranked = sorted(
-            self._bands,
-            key=lambda b: self._quality_weight * (1.0 - self._band_state[b.name]["quality"]) + self._recency_weight * min(self._band_recency_seconds(b.name) / 10.0, 1.0),
-            reverse=True,
-        )
+        total_visits = sum(state["visits"] for state in self._band_state.values())
+
+        def _adaptive_score(band: SweepBand) -> float:
+            state = self._band_state[band.name]
+            novelty = 1.0 - (state["visits"] / max(total_visits, 1))
+            persistence = min(self._band_recency_seconds(band.name) / 10.0, 1.0)
+            uncertainty = min(state["quality_delta_ema"] / 0.5, 1.0)
+            adaptive = (
+                self._novelty_weight * novelty
+                + self._persistence_weight * persistence
+                + self._uncertainty_weight * uncertainty
+            )
+
+            cycles_since_last = self._cycle_index - state["last_cycle_seen"]
+            overdue_boost = 1.0 if cycles_since_last >= max(2, len(self._bands)) else 0.0
+            quality_recency = self._quality_weight * (1.0 - state["quality"]) + self._recency_weight * persistence
+            return adaptive + quality_recency + overdue_boost
+
+        ranked = sorted(self._bands, key=_adaptive_score, reverse=True)
         return ranked[0]
 
     def _make_sweep_plan(self, band: SweepBand) -> list[float]:
@@ -116,9 +159,13 @@ class SdrControllerService:
         frame_quality = mean(self._frame_quality(frame) for frame in frames) if frames else 0.0
         observed_at = datetime.now(timezone.utc)
         state = self._band_state[band.name]
+        prev_quality = state["quality"]
         state["quality"] = 0.7 * state["quality"] + 0.3 * frame_quality
+        state["quality_delta_ema"] = 0.8 * state["quality_delta_ema"] + 0.2 * abs(frame_quality - prev_quality)
         state["last_seen_at"] = observed_at
         state["frames"] += len(frames)
+        state["visits"] += 1
+        state["last_cycle_seen"] = self._cycle_index
         self._dwell_seconds = min(max(self._dwell_seconds * (1.2 if frame_quality > 0.7 else 0.9), self._min_dwell_seconds), self._max_dwell_seconds)
 
         return {
@@ -153,6 +200,7 @@ class SdrControllerService:
             observation = self._capture_dwell(band, center)
             self._sink(observation)
             emitted += 1
+        self._cycle_index += 1
         return {"band": band.name, "planned_centers": len(plan), "emitted": emitted}
 
     def start(self, poll_interval_s: float = 0.0) -> None:
@@ -181,7 +229,9 @@ class SdrControllerService:
             out[band] = {
                 "quality": state["quality"],
                 "frame_count": state["frames"],
+                "visits": state["visits"],
                 "last_seen_at": state["last_seen_at"].isoformat() if state["last_seen_at"] else None,
                 "recency_seconds": self._band_recency_seconds(band),
+                "quality_delta_ema": round(state["quality_delta_ema"], 6),
             }
         return out
