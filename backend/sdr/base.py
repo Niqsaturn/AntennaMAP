@@ -14,6 +14,7 @@ class SpectrumWindow:
     center_freq_hz: float
     sample_rate_hz: float
     psd_bins_db: list[float]
+    source_provenance: str = "synthetic"
 
 
 @dataclass
@@ -50,6 +51,7 @@ class NormalizedSdrReading:
     psd_bins_db: list[float]
     gps: dict[str, float] | None
     provider: str
+    source_provenance: str
     metadata: dict[str, Any]
 
 
@@ -101,6 +103,7 @@ class BaseSdrAdapter(ABC):
             psd_bins_db=spectrum.psd_bins_db,
             gps=gps,
             provider=metadata.provider,
+            source_provenance=spectrum.source_provenance,
             metadata={
                 "device_id": metadata.device_id,
                 "serial": metadata.serial,

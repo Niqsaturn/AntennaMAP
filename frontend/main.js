@@ -951,6 +951,7 @@ function _handleSseEvent(ev) {
 
     case 'sdr_frame': {
       const bins = ev.fft_bins || ev.bins || ev.bins_db;
+      const provenance = ev.source_provenance || ev.provenance || 'unknown';
       const centerHz = Number(ev.center_freq_hz);
       const bwHz = Number(ev.span_hz || ev.bw_hz || ev.sample_rate_hz);
       const nodeKey = `${ev?.source?.host || ev.node || 'unknown'}:${ev?.source?.port || 8073}`;
@@ -983,7 +984,7 @@ function _handleSseEvent(ev) {
       _wfLastFrameAt = Date.now();
       _setWaterfallStatus(
         'receiving',
-        `Receiving data · ${_wfBins} bins · ${(centerHz/1e6).toFixed(3)} MHz center · ${(bwHz/1e3).toFixed(1)} kHz span · dropped ${_wfDroppedFrameCount}`
+        `Receiving data (${provenance}) · ${_wfBins} bins · ${(centerHz/1e6).toFixed(3)} MHz center · ${(bwHz/1e3).toFixed(1)} kHz span · dropped ${_wfDroppedFrameCount}`
       );
       if (_wfDecodeMismatchCount > 0) {
         _wfDecodeMismatchCount = 0;

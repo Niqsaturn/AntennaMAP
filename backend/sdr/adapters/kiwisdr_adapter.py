@@ -85,6 +85,7 @@ class KiwiSdrAdapter(BaseSdrAdapter):
                     center_freq_hz=float(self.config.get("center_freq_hz", 7.1e6)),
                     sample_rate_hz=12_000.0,
                     psd_bins_db=data["bins_db"],
+                    source_provenance="live_api",
                 )
             except Exception:
                 pass
@@ -94,6 +95,7 @@ class KiwiSdrAdapter(BaseSdrAdapter):
             center_freq_hz=float(self.config.get("center_freq_hz", 7.1e6)),
             sample_rate_hz=12_000.0,
             psd_bins_db=[-92.4, -90.8, -88.1, -89.0],
+            source_provenance="synthetic",
         )
 
     def read_signal_metrics(self) -> SignalMetrics:

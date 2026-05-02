@@ -24,18 +24,25 @@ class HackrfAdapter(BaseSdrAdapter):
     def read_spectrum_window(self) -> SpectrumWindow:
         center = float(self.config.get("center_freq_hz", 915e6))
         sr = float(self.config.get("sample_rate_hz", 8e6))
-        psd = computed_psd(
-            center_freq_hz=center,
-            sample_rate_hz=sr,
-            n_bins=64,
-            known_signals=self.config.get("known_signals"),
-            config=self.config,
-        )
+        live_bins = self.config.get("live_api_bins_db")
+        if isinstance(live_bins, list) and live_bins:
+            psd = [float(v) for v in live_bins]
+            provenance = "live_api"
+        else:
+            psd = computed_psd(
+                center_freq_hz=center,
+                sample_rate_hz=sr,
+                n_bins=64,
+                known_signals=self.config.get("known_signals"),
+                config=self.config,
+            )
+            provenance = "synthetic"
         return SpectrumWindow(
             timestamp=datetime.now(timezone.utc).isoformat(),
             center_freq_hz=center,
             sample_rate_hz=sr,
             psd_bins_db=psd,
+            source_provenance=provenance,
         )
 
     def read_signal_metrics(self) -> SignalMetrics:
