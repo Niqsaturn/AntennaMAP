@@ -86,6 +86,18 @@ const health = {
   render: { features: 'pending', speculative: 'pending', satellites: 'pending', fox_targets: 'pending' },
 };
 
+
+function _hasValidGlyphs() {
+  try {
+    const styleGlyphs = map.getStyle && map.getStyle()?.glyphs;
+    const configuredGlyphs = _DARK_STYLE?.glyphs;
+    const glyphs = styleGlyphs || configuredGlyphs;
+    return typeof glyphs === 'string' && glyphs.includes('{fontstack}') && glyphs.includes('{range}');
+  } catch (_) {
+    return false;
+  }
+}
+
 function _safeSetSourceData(sourceId, data, statusKey) {
   try {
     const src = map.getSource(sourceId);
@@ -500,6 +512,8 @@ map.on('load', async () => {
   map.addSource('satellites',           { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('speculative-uncertain',{ type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
 
+  const canRenderSymbolText = _hasValidGlyphs();
+
   // ── Layers - base ────────────────────────────────────────────────────────
   map.addLayer({ id: 'infra-layer',    type: 'circle', source: 'sites',
     filter: ['==', ['get', 'kind'], 'infrastructure'],
@@ -562,9 +576,13 @@ map.on('load', async () => {
   // ── Layers - satellites ──────────────────────────────────────────────────
   map.addLayer({ id: 'satellite-layer', type: 'circle', source: 'satellites',
     paint: { 'circle-radius': 5, 'circle-color': '#ffffff', 'circle-stroke-width': 1.5, 'circle-stroke-color': '#60a5fa' } });
-  map.addLayer({ id: 'satellite-label', type: 'symbol', source: 'satellites',
-    layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': 9, 'text-offset': [0, 1.2] },
-    paint: { 'text-color': '#ffffff', 'text-halo-color': '#000', 'text-halo-width': 1 } });
+  if (canRenderSymbolText) {
+    map.addLayer({ id: 'satellite-label', type: 'symbol', source: 'satellites',
+      layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': 9, 'text-offset': [0, 1.2] },
+      paint: { 'text-color': '#ffffff', 'text-halo-color': '#000', 'text-halo-width': 1 } });
+  } else {
+    console.warn('Map style glyphs unavailable; skipping satellite symbol labels.');
+  }
 
   sourcesInitialized = true;
 
@@ -590,7 +608,7 @@ map.on('load', async () => {
   });
   satelliteToggle?.addEventListener('change', () => {
     const vis = satelliteToggle.checked ? 'visible' : 'none';
-    ['satellite-layer', 'satellite-label'].forEach((l) => map.setLayoutProperty(l, 'visibility', vis));
+    ['satellite-layer', ...(map.getLayer('satellite-label') ? ['satellite-label'] : [])].forEach((l) => map.setLayoutProperty(l, 'visibility', vis));
     if (satelliteToggle.checked) refreshSatellites();
   });
   satGroupSelect?.addEventListener('change', refreshSatellites);
@@ -812,9 +830,13 @@ function _addFoxSources() {
       'circle-stroke-width': 2.5,
       'circle-stroke-color': '#fff',
     } });
-  map.addLayer({ id: 'fox-target-label', type: 'symbol', source: 'fox-targets',
-    layout: { 'text-field': ['get', 'freq_label'], 'text-font': ['Noto Sans Regular'], 'text-size': 9, 'text-offset': [0, 1.6] },
-    paint: { 'text-color': '#4ade80', 'text-halo-color': '#000', 'text-halo-width': 1 } });
+  if (_hasValidGlyphs()) {
+    map.addLayer({ id: 'fox-target-label', type: 'symbol', source: 'fox-targets',
+      layout: { 'text-field': ['get', 'freq_label'], 'text-font': ['Noto Sans Regular'], 'text-size': 9, 'text-offset': [0, 1.6] },
+      paint: { 'text-color': '#4ade80', 'text-halo-color': '#000', 'text-halo-width': 1 } });
+  } else {
+    console.warn('Map style glyphs unavailable; skipping fox target symbol labels.');
+  }
 
   // Click handler for fox targets
   map.on('click', 'fox-target-layer', (e) => {
