@@ -40,14 +40,35 @@ def _ring_band(lon: float, lat: float, inner_m: float, outer_m: float, steps: in
     outer_ring = [list(p) for p in reversed(outer)] + [list(outer[-1])]
     return [outer_ring, inner_ring]
 
+
+def _power_lobes(lon: float, lat: float, azimuth_deg: float, beamwidth_deg: float, radius_m: float) -> list[list[list[float]]]:
+    """Return phased-array style lobe polygons (main + two side lobes)."""
+    lobes: list[list[list[float]]] = []
+    for offset_deg, gain_scale, width_scale in (
+        (0.0, 1.0, 1.0),
+        (+max(18.0, beamwidth_deg * 0.6), 0.55, 0.75),
+        (-max(18.0, beamwidth_deg * 0.6), 0.55, 0.75),
+    ):
+        lobe_radius = max(100.0, radius_m * gain_scale)
+        lobe_beam = max(12.0, beamwidth_deg * width_scale)
+        start = azimuth_deg + offset_deg - lobe_beam / 2
+        ring = [[lon, lat]]
+        for i in range(17):
+            b = start + (lobe_beam * i / 16)
+            x, y = _destination(lon, lat, b, lobe_radius)
+            ring.append([x, y])
+        ring.append([lon, lat])
+        lobes.append(ring)
+    return lobes
+
 def build_overlay_geometries(feature: dict[str, Any]) -> dict[str, dict[str, Any] | None]:
     geom = feature.get("geometry", {})
     props = feature.get("properties", {})
     if geom.get("type") != "Point":
-        return {"site_point": None, "direction_ray": None, "sector_wedge": None, "confidence_ellipse": None, "range_likely_band": None, "uncertainty_polygon": None}
+        return {"site_point": None, "direction_ray": None, "sector_wedge": None, "confidence_ellipse": None, "range_likely_band": None, "uncertainty_polygon": None, "power_lobes": None}
     lon, lat = geom.get("coordinates", [None, None])
     if lon is None or lat is None:
-        return {"site_point": None, "direction_ray": None, "sector_wedge": None, "confidence_ellipse": None, "range_likely_band": None, "uncertainty_polygon": None}
+        return {"site_point": None, "direction_ray": None, "sector_wedge": None, "confidence_ellipse": None, "range_likely_band": None, "uncertainty_polygon": None, "power_lobes": None}
     azimuth = float(props.get("azimuth_deg") or 0)
     beamwidth = float(props.get("beamwidth_deg") or (360 if props.get("directionality") == "Omni" else 80))
     ray_length = float(props.get("ray_length_m") or 900)
@@ -72,6 +93,9 @@ def build_overlay_geometries(feature: dict[str, Any]) -> dict[str, dict[str, Any
         sector.append([x, y])
     sector.append([lon, lat])
 
+    directional_confidence = max(0.05, min(0.99, 1.0 - (beamwidth / 360.0)))
+    omni_confidence = 1.0 - directional_confidence
+
     return {
         "site_point": {"type": "Point", "coordinates": [lon, lat]},
         "direction_ray": {"type": "LineString", "coordinates": [[lon, lat], [ray_end[0], ray_end[1]]]},
@@ -79,4 +103,18 @@ def build_overlay_geometries(feature: dict[str, Any]) -> dict[str, dict[str, Any
         "confidence_ellipse": {"type": "Polygon", "coordinates": [_ellipse(lon, lat, azimuth, conf_major, conf_minor)]},
         "range_likely_band": {"type": "Polygon", "coordinates": _ring_band(lon, lat, likely_inner_m, likely_outer_m)},
         "uncertainty_polygon": {"type": "Polygon", "coordinates": [_ellipse(lon, lat, azimuth, conf_major * 1.4, conf_minor * 1.4)]},
+        "power_lobes": {"type": "MultiPolygon", "coordinates": [[ring] for ring in _power_lobes(lon, lat, azimuth, beamwidth, wedge_radius)]},
+        "computed_metrics": {
+            "directional_confidence": round(directional_confidence, 4),
+            "omni_confidence": round(omni_confidence, 4),
+            "range_likely_inner_m": round(likely_inner_m, 1),
+            "range_likely_outer_m": round(likely_outer_m, 1),
+            "propagation_endpoint_azimuth_deg": round(azimuth, 1),
+            "propagation_endpoint_radius_m": round((likely_inner_m + likely_outer_m) / 2, 1),
+            "assumptions": [
+                "free-space-like inverse path loss with SNR correction",
+                "single dominant emitter per hypothesis cluster",
+                "main lobe plus symmetric sidelobes for phased-array-like concentration",
+            ],
+        },
     }
