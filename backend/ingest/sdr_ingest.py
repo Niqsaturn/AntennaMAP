@@ -10,6 +10,8 @@ from pathlib import Path
 from statistics import mean
 from typing import Any, Callable
 
+from backend.analysis.track_pipeline import derive_track_candidates
+
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
@@ -74,6 +76,9 @@ class SDRIngestService:
             con.execute(
                 "CREATE TABLE IF NOT EXISTS sdr_aggregates (id INTEGER PRIMARY KEY AUTOINCREMENT, window_start TEXT NOT NULL, window_end TEXT NOT NULL, sample_count INTEGER NOT NULL, avg_rssi_dbm REAL, avg_snr_db REAL, avg_waterfall_db REAL, payload_json TEXT NOT NULL)"
             )
+            con.execute(
+                "CREATE TABLE IF NOT EXISTS track_candidates (track_id TEXT PRIMARY KEY, last_seen TEXT NOT NULL, confidence REAL NOT NULL, payload_json TEXT NOT NULL)"
+            )
             con.commit()
         finally:
             con.close()
@@ -88,12 +93,14 @@ class SDRIngestService:
                 f.write(json.dumps(row, sort_keys=True, default=str))
                 f.write("\n")
 
-    def _persist(self, accepted: list[dict[str, Any]], aggregate: dict[str, Any] | None) -> None:
+    def _persist(self, accepted: list[dict[str, Any]], aggregate: dict[str, Any] | None, tracks: list[dict[str, Any]]) -> None:
         now = datetime.now(tz=timezone.utc).isoformat()
         raw_rows = [{"ingested_at": now, "payload": row} for row in accepted]
         self._append_jsonl(self._storage.raw_jsonl, raw_rows)
         if aggregate:
             self._append_jsonl(self._storage.aggregates_jsonl, [aggregate])
+        if tracks:
+            self._append_jsonl(self._storage.aggregates_jsonl, [{"track_candidates": tracks, "logged_at": now}])
 
         self._ensure_sqlite()
         con = sqlite3.connect(self._storage.sqlite_file)
@@ -112,6 +119,12 @@ class SDRIngestService:
                         aggregate.get("avg_waterfall_db"),
                         json.dumps(aggregate, sort_keys=True, default=str),
                     ),
+                )
+            for t in tracks:
+                con.execute(
+                    """INSERT INTO track_candidates (track_id, last_seen, confidence, payload_json) VALUES (?, ?, ?, ?)
+                    ON CONFLICT(track_id) DO UPDATE SET last_seen=excluded.last_seen, confidence=excluded.confidence, payload_json=excluded.payload_json""",
+                    (t["track_id"], t["timestamp"], t["confidence"], json.dumps(t, sort_keys=True, default=str)),
                 )
             con.commit()
         finally:
@@ -142,7 +155,8 @@ class SDRIngestService:
                 rejected.append({"logged_at": datetime.now(tz=timezone.utc).isoformat(), "reason": "schema_validation", "errors": exc.errors(), "packet": packet})
         self._append_jsonl(self._storage.reject_jsonl, rejected)
         aggregate = self._build_aggregate(accepted)
-        self._persist(accepted, aggregate)
+        tracks = [t.__dict__ for t in derive_track_candidates(accepted)]
+        self._persist(accepted, aggregate, tracks)
         self._ingested_count += len(accepted)
         return {"accepted": len(accepted), "rejected": len(rejected)}
 
