@@ -31,6 +31,20 @@ _BAND_FALLBACK_M: dict[str, float] = {
 }
 _DEFAULT_FALLBACK_M = 2_000.0
 
+_BAND_RF_DEFAULTS: dict[str, tuple[float, float]] = {
+    "AM Broadcast": (1.0, 20_000.0),
+    "FM Broadcast": (100.0, 200_000.0),
+    "Aviation VHF": (121.5, 25_000.0),
+    "VHF Land Mobile": (155.0, 12_500.0),
+    "UHF Land Mobile": (460.0, 12_500.0),
+    "Cellular / LTE": (1850.0, 20_000_000.0),
+    "2.4 GHz": (2440.0, 20_000_000.0),
+    "5.8 GHz": (5800.0, 40_000_000.0),
+    "HF / Shortwave": (10.0, 10_000.0),
+    "VHF": (145.0, 25_000.0),
+    "UHF": (433.92, 25_000.0),
+}
+
 
 _BEARING_CLUSTER_DEG = 15.0  # detections within 15° of each other → same cluster
 
@@ -141,6 +155,18 @@ def _feature_id(lat: float, lon: float, freq_band: str) -> str:
     return "spec_" + hashlib.md5(key.encode()).hexdigest()[:10]
 
 
+def _rf_profile(freq_band: str, notes: str) -> dict[str, Any]:
+    center_mhz, bw_hz = _BAND_RF_DEFAULTS.get(freq_band, (433.92, 25_000.0))
+    wavelength_m = 299_792_458.0 / (center_mhz * 1_000_000.0)
+    return {
+        "center_frequency_mhz": round(center_mhz, 3),
+        "bandwidth_hz": round(bw_hz, 1),
+        "wavelength_m": round(wavelength_m, 4),
+        "rf_band_assumed": freq_band,
+        "rf_assumption_note": "band-name prior used when precise carrier metadata is unavailable",
+    }
+
+
 def speculate_from_detections(
     detections: list[SignalDetection],
     operator_lat: float,
@@ -214,7 +240,9 @@ def speculate_from_detections(
             "estimated_range_m": round(range_m),
             "notes": rep.notes,
             "timestamp": now,
+            "hypothesis_active": True,
             **{k: v for k, v in cls.estimated_elements.items()},
+            **_rf_profile(rep.freq_band, rep.notes),
         }
 
         feature: dict[str, Any] = {
@@ -226,6 +254,24 @@ def speculate_from_detections(
         # Enrich with overlay geometries
         try:
             feature = _enrich(feature)
+            metrics = feature.get("properties", {}).get("overlay_geometries", {}).get("computed_metrics", {})
+            if metrics:
+                feature["properties"]["directional_confidence_envelope"] = {
+                    "directional": metrics.get("directional_confidence"),
+                    "omni": metrics.get("omni_confidence"),
+                }
+                feature["properties"]["power_concentration_estimate"] = {
+                    "model": "main-plus-sidelobes",
+                    "main_lobe_share": 0.62,
+                    "sidelobe_each_share": 0.19,
+                }
+                feature["properties"]["propagation_footprint"] = {
+                    "likely_inner_m": metrics.get("range_likely_inner_m"),
+                    "likely_outer_m": metrics.get("range_likely_outer_m"),
+                    "endpoint_azimuth_deg": metrics.get("propagation_endpoint_azimuth_deg"),
+                    "endpoint_radius_m": metrics.get("propagation_endpoint_radius_m"),
+                    "uncertainty_model": "1-sigma RSSI/SNR radial band",
+                }
         except Exception as exc:
             _log.warning("overlay geometry enrichment failed for %s: %s", fid, exc)
 
