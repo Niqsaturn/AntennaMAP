@@ -94,6 +94,7 @@ from backend.analysis.waterfall_analyzer import analyze_psd
 from backend.analysis.range_estimator import estimate_range_km
 from backend.analysis.bearing_tracker import estimate_bearing as estimate_bearing_track
 from backend.analysis.kalman_tracker import PositionKalman
+from backend.analysis.ai_correction_loop import ai_correction_loop
 from backend.training.trainer import train_single_triangulation_baseline
 from backend.training.triangulation_baseline import estimate_single_operator
 
@@ -1798,6 +1799,10 @@ async def _capture_loop() -> None:
         _auto_loop._start_idle()
     except Exception:
         pass
+    try:
+        ai_correction_loop.start()
+    except Exception:
+        pass
     # Auto-populate KiwiSDR nodes from public directory (fire-and-forget)
     try:
         _asyncio.create_task(node_pool_auto_populate_loop())
@@ -1936,6 +1941,28 @@ class FoxMultilatRequest(BaseModel):
     tdoa_obs: list[dict] = []
     bearing_obs: list[dict] = []
     freq_hz: float = 100e6
+
+
+
+
+@app.post("/api/ai/corrections/start")
+def ai_corrections_start() -> dict:
+    return {"ok": True, "loop": ai_correction_loop.start()}
+
+
+@app.post("/api/ai/corrections/stop")
+def ai_corrections_stop() -> dict:
+    return {"ok": True, "loop": ai_correction_loop.stop()}
+
+
+@app.get("/api/ai/corrections/status")
+def ai_corrections_status() -> dict:
+    return ai_correction_loop.status()
+
+
+@app.post("/api/ai/corrections/run_once")
+def ai_corrections_run_once() -> dict:
+    return ai_correction_loop.run_once()
 
 
 @app.post("/api/foxhunt/auto/start")
