@@ -315,6 +315,7 @@ class LoopManager:
         self._last_successful_run_at: str | None = None
         self._last_run_duration_ms: float | None = None
         self._provider_errors: list[dict] = []
+        self._cycle_metrics: dict = {}
 
     def _record_error(self, provider: str, operation: str, exc: Exception) -> None:
         self._provider_errors = [
@@ -398,7 +399,12 @@ class LoopManager:
                     "last_successful_run_at": self._last_successful_run_at,
                 },
                 "provider_errors": self._provider_errors,
+                "cycle_metrics": self._cycle_metrics,
             }
+
+    def set_cycle_metrics(self, metrics: dict) -> None:
+        with self._lock:
+            self._cycle_metrics = metrics
 
 
 loop_manager = LoopManager()
@@ -496,9 +502,42 @@ def _run_analysis_cycle(cfg: dict) -> None:
     import math as _math
     import time as _time
     t0 = _time.monotonic()
+    cycle_started_at = datetime.now(timezone.utc)
+    metrics: dict[str, Any] = {
+        "cycle_index": None,
+        "cycle_phase": "starting",
+        "live_frame_rate_fps": 0.0,
+        "last_waterfall_frame_age_ms": None,
+        "detections": 0,
+        "candidates": 0,
+        "tracks": 0,
+        "solver_attempts": 0,
+        "solver_successes": 0,
+        "solver_failures": 0,
+        "solver_failure_reasons": [],
+        "ai_corrections_applied": 0,
+        "ai_corrections_rejected": 0,
+        "map_publish_count": 0,
+        "map_publish_latency_ms_p50": 0.0,
+        "map_publish_latency_ms_p95": 0.0,
+        "cycle_started_at": cycle_started_at.isoformat(),
+    }
+    loop_snapshot = loop_manager.status()
+    if loop_snapshot.get("last_run", {}).get("started_at"):
+        metrics["cycle_index"] = int((loop_snapshot.get("cycle_metrics", {}).get("cycle_index") or 0) + 1)
 
     samples = read_jsonl(INGEST_LOG_FILE)[-cfg.get("limit_samples", 50):]
+    metrics["cycle_phase"] = "ingest_loaded"
+    if samples:
+        ts = [_parse_timestamp(s.get("timestamp", "")) for s in samples]
+        ts = [t for t in ts if t]
+        if len(ts) >= 2:
+            span = max((max(ts) - min(ts)).total_seconds(), 0.001)
+            metrics["live_frame_rate_fps"] = round(len(samples) / span, 3)
+        if ts:
+            metrics["last_waterfall_frame_age_ms"] = int((datetime.now(timezone.utc) - max(ts)).total_seconds() * 1000)
     if not samples:
+        loop_manager.set_cycle_metrics(metrics)
         return
 
     # Operator position from most recent telemetry with GPS
@@ -536,6 +575,7 @@ def _run_analysis_cycle(cfg: dict) -> None:
         if s.get("bearing_deg") is not None and s.get("lat") and s.get("lon")
     ]
     if len(tri_samples_raw) >= 3:
+        metrics["solver_attempts"] += 1
         try:
             ml_samples = [
                 MLTelemetrySample(
@@ -553,14 +593,21 @@ def _run_analysis_cycle(cfg: dict) -> None:
             ]
             wls = solve_weighted_least_squares(ml_samples)
             if wls.quality_score > 0.3:
+                metrics["solver_successes"] += 1
                 triangulation_anchor = {
                     "lat": wls.center_lat,
                     "lon": wls.center_lon,
                     "uncertainty_m": wls.ellipse_major_m / 2.0,
                     "quality_score": wls.quality_score,
                 }
+            else:
+                metrics["solver_failures"] += 1
+                metrics["solver_failure_reasons"].append("wls_quality_below_threshold")
         except Exception:
-            pass
+            metrics["solver_failures"] += 1
+            metrics["solver_failure_reasons"].append("triangulation_exception")
+    else:
+        metrics["solver_failure_reasons"].append("insufficient_triangulation_observations")
 
     # ------------------------------------------------------------------
     # FCC context
@@ -581,15 +628,23 @@ def _run_analysis_cycle(cfg: dict) -> None:
     result = detect_signals(
         samples, model_config, fcc_context, examples_text, op_lat, op_lon
     )
+    metrics["cycle_phase"] = "detected"
     corrected_detections, correction_audit, correction_stats = _apply_ai_correction_loop(result.detections, samples)
+    metrics["candidates"] = len(result.detections)
     result.detections = corrected_detections
+    metrics["detections"] = len(result.detections)
+    metrics["ai_corrections_applied"] = len([a for a in correction_audit if not a.get("rejected")])
+    metrics["ai_corrections_rejected"] = len([a for a in correction_audit if a.get("rejected")])
 
     # ------------------------------------------------------------------
     # Generate and persist speculative features
     # ------------------------------------------------------------------
     speculative = []
+    publish_latencies_ms = []
     if result.detections:
+        metrics["cycle_phase"] = "publishing"
         speculative = speculate_from_detections(result.detections, op_lat, op_lon)
+        metrics["tracks"] = len(speculative)
         audit_by_signal = {a["signal_id"]: a for a in correction_audit}
         for feat in speculative:
             props = feat.get("properties", {})
@@ -612,6 +667,7 @@ def _run_analysis_cycle(cfg: dict) -> None:
 
         for feat in speculative:
             try:
+                p0 = _time.monotonic()
                 upsert_feature(feat)
                 # Apply Kalman smoothing to persisted position
                 fid = feat.get("properties", {}).get("id")
@@ -626,8 +682,10 @@ def _run_analysis_cycle(cfg: dict) -> None:
                     feat.get("properties", {})["kalman_uncertainty_m"] = round(s_unc, 1)
                     upsert_feature(feat)
                     kf.save(fid)
+                publish_latencies_ms.append(round((_time.monotonic() - p0) * 1000, 2))
             except Exception as e:
                 logger.warning("failed to save kalman state for %s: %s", fid, e)
+                metrics["solver_failure_reasons"].append("map_publish_exception")
 
     # ------------------------------------------------------------------
     # Mark operator's current tile as analyzed
@@ -670,6 +728,16 @@ def _run_analysis_cycle(cfg: dict) -> None:
     # Log analysis result
     # ------------------------------------------------------------------
     ms = (_time.monotonic() - t0) * 1000
+    metrics["cycle_phase"] = "completed"
+    metrics["map_publish_count"] = len(publish_latencies_ms)
+    if publish_latencies_ms:
+        lat_sorted = sorted(publish_latencies_ms)
+        p50_idx = max(0, int(0.5 * (len(lat_sorted) - 1)))
+        p95_idx = max(0, int(0.95 * (len(lat_sorted) - 1)))
+        metrics["map_publish_latency_ms_p50"] = lat_sorted[p50_idx]
+        metrics["map_publish_latency_ms_p95"] = lat_sorted[p95_idx]
+    metrics["cycle_duration_ms"] = round(ms, 1)
+    loop_manager.set_cycle_metrics(metrics)
     try:
         log_analysis(
             model=cfg.get("model", ""),
