@@ -82,6 +82,9 @@ class EventBus:
         self._listeners: list[Any] = []   # asyncio.Queue objects added at runtime
         self._lock = threading.Lock()
         self._loop: Any = None            # asyncio event loop, set at startup
+        self._sdr_frames_emitted = 0
+        self._sdr_schema_rejects = 0
+        self._sdr_last_frame_ts = ""
 
     def set_loop(self, loop: Any) -> None:
         self._loop = loop
@@ -99,6 +102,18 @@ class EventBus:
 
     def publish(self, event: dict) -> None:
         """Thread-safe publish to all SSE subscribers."""
+        if event.get("type") == "sdr_frame":
+            try:
+                from backend.sdr.events import SdrFrameEvent
+                model = SdrFrameEvent.validate_payload(event)
+                event = model.model_dump()
+                with self._lock:
+                    self._sdr_frames_emitted += 1
+                    self._sdr_last_frame_ts = model.timestamp
+            except Exception:
+                with self._lock:
+                    self._sdr_schema_rejects += 1
+                return
         if not self._loop or not self._listeners:
             return
         import asyncio
@@ -109,6 +124,14 @@ class EventBus:
                 asyncio.run_coroutine_threadsafe(q.put(event), self._loop)
             except Exception:
                 pass
+
+    def sdr_stats(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "frames_emitted": self._sdr_frames_emitted,
+                "schema_rejects": self._sdr_schema_rejects,
+                "last_frame_timestamp": self._sdr_last_frame_ts or None,
+            }
 
 
 event_bus = EventBus()
