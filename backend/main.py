@@ -109,6 +109,7 @@ MODELS_DIR = ROOT / "models"
 ML_MODELS_DIR = ROOT / "backend" / "ml" / "models"
 RUNTIME_CONFIG_FILE = ROOT / "backend" / "pipeline" / "data" / "runtime_config.json"
 TRAINING_STATUS_FILE = ROOT / "backend" / "pipeline" / "data" / "training_status.json"
+AI_PRIORS_FILE = ROOT / "backend" / "pipeline" / "data" / "ai_priors.json"
 
 
 class SDRConfigureRequest(BaseModel):
@@ -402,6 +403,92 @@ class LoopManager:
 loop_manager = LoopManager()
 
 
+def _load_ai_priors() -> dict:
+    if AI_PRIORS_FILE.exists():
+        return json.loads(AI_PRIORS_FILE.read_text(encoding="utf-8"))
+    return {"by_band_tod": {}, "updated_at": None}
+
+
+def _save_ai_priors(priors: dict) -> None:
+    AI_PRIORS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    AI_PRIORS_FILE.write_text(json.dumps(priors, indent=2), encoding="utf-8")
+
+
+def _tod_bucket(ts: datetime | None = None) -> str:
+    hour = (ts or datetime.now(timezone.utc)).hour
+    if 5 <= hour < 12:
+        return "morning"
+    if 12 <= hour < 18:
+        return "afternoon"
+    if 18 <= hour < 23:
+        return "evening"
+    return "overnight"
+
+
+def _apply_ai_correction_loop(detections: list, samples: list[dict]) -> tuple[list, list[dict], dict]:
+    """Recalibrate detections and reject unstable candidates with audit trail."""
+    if not detections:
+        return [], [], {"offset_hz": 0.0, "noise_floor_dbm": -110.0}
+    freq_offsets = []
+    rssis = []
+    band_bearings: dict[str, list[float]] = {}
+    for s in samples:
+        f_hz = s.get("frequency_hz") or s.get("freq_hz")
+        f_mhz = s.get("frequency_mhz")
+        if f_hz and f_mhz:
+            freq_offsets.append(float(f_hz) - float(f_mhz) * 1e6)
+        if s.get("rssi_dbm") is not None:
+            rssis.append(float(s["rssi_dbm"]))
+        band = s.get("band") or s.get("freq_band")
+        b = s.get("bearing_deg")
+        if band and b is not None:
+            band_bearings.setdefault(str(band), []).append(float(b))
+    noise_floor = (sum(sorted(rssis)[:max(1, len(rssis) // 4)]) / max(1, len(rssis) // 4)) if rssis else -110.0
+    offset_hz = sum(freq_offsets) / len(freq_offsets) if freq_offsets else 0.0
+    priors = _load_ai_priors()
+    bucket = _tod_bucket()
+    corrected, audit = [], []
+    for d in detections:
+        band = d.freq_band or "unknown"
+        key = f"{band}:{bucket}"
+        prior = priors["by_band_tod"].get(key, {"mean_conf": 0.55, "count": 0})
+        before_conf = float(d.confidence)
+        band_samples = band_bearings.get(band, [])
+        unstable = False
+        reason = "accepted"
+        if d.bearing_deg is not None and len(band_samples) >= 2:
+            spread = max(band_samples) - min(band_samples)
+            if spread > 95:
+                unstable = True
+                reason = "rejected_unstable_bearing_spread"
+        if before_conf < 0.25 or (rssis and max(rssis) < (noise_floor + 2.0)):
+            unstable = True
+            reason = "rejected_low_confidence_or_below_noise_floor"
+        calibrated = max(0.0, min(1.0, before_conf * 0.7 + float(prior["mean_conf"]) * 0.3))
+        d.confidence = calibrated
+        priors["by_band_tod"][key] = {
+            "mean_conf": round((float(prior["mean_conf"]) * prior["count"] + calibrated) / (prior["count"] + 1), 4),
+            "count": prior["count"] + 1,
+        }
+        delta = round(calibrated - before_conf, 4)
+        entry = {
+            "signal_id": d.signal_id,
+            "reason": reason,
+            "before": {"confidence": before_conf},
+            "after": {"confidence": calibrated},
+            "confidence_delta": delta,
+            "offset_hz": round(offset_hz, 2),
+            "noise_floor_dbm": round(noise_floor, 2),
+            "rejected": unstable,
+        }
+        audit.append(entry)
+        if not unstable:
+            corrected.append(d)
+    priors["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_ai_priors(priors)
+    return corrected, audit, {"offset_hz": round(offset_hz, 2), "noise_floor_dbm": round(noise_floor, 2)}
+
+
 def _run_analysis_cycle(cfg: dict) -> None:
     """Full SDR analysis cycle: waterfall peaks → range estimation → triangulation → Kalman → map store."""
     import asyncio
@@ -493,6 +580,8 @@ def _run_analysis_cycle(cfg: dict) -> None:
     result = detect_signals(
         samples, model_config, fcc_context, examples_text, op_lat, op_lon
     )
+    corrected_detections, correction_audit, correction_stats = _apply_ai_correction_loop(result.detections, samples)
+    result.detections = corrected_detections
 
     # ------------------------------------------------------------------
     # Generate and persist speculative features
@@ -500,6 +589,13 @@ def _run_analysis_cycle(cfg: dict) -> None:
     speculative = []
     if result.detections:
         speculative = speculate_from_detections(result.detections, op_lat, op_lon)
+        audit_by_signal = {a["signal_id"]: a for a in correction_audit}
+        for feat in speculative:
+            props = feat.get("properties", {})
+            sid = props.get("signal_id")
+            if sid and sid in audit_by_signal:
+                props["correction_audit"] = audit_by_signal[sid]
+            props["correction_stats"] = correction_stats
 
         # Override position with triangulation anchor when WLS quality is high
         if triangulation_anchor and triangulation_anchor["quality_score"] > 0.6:
@@ -1078,10 +1174,19 @@ async def analysis_run(body: AnalysisRunRequest) -> dict:
     model_config = {"provider": body.provider, "model": body.model}
 
     result = detect_signals(samples, model_config, fcc_context, examples_text, op_lat, op_lon)
+    corrected_detections, correction_audit, correction_stats = _apply_ai_correction_loop(result.detections, samples)
+    result.detections = corrected_detections
 
     speculative_features = []
     if result.detections and (op_lat or op_lon):
         speculative_features = speculate_from_detections(result.detections, op_lat, op_lon)
+        audit_by_signal = {a["signal_id"]: a for a in correction_audit}
+        for feat in speculative_features:
+            props = feat.get("properties", {})
+            sid = props.get("signal_id")
+            if sid and sid in audit_by_signal:
+                props["correction_audit"] = audit_by_signal[sid]
+            props["correction_stats"] = correction_stats
         for feat in speculative_features:
             try:
                 upsert_feature(feat)

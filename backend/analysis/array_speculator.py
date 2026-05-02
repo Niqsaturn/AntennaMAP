@@ -199,6 +199,7 @@ def speculate_from_detections(
 
         props: dict[str, Any] = {
             "id": fid,
+            "signal_id": rep.signal_id,
             "kind": "speculative",
             "name": f"Speculative {cls.antenna_type} ({rep.freq_band})",
             "freq_band": rep.freq_band,
