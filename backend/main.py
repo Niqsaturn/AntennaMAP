@@ -1704,12 +1704,6 @@ async def _capture_loop() -> None:
         _asyncio.create_task(node_pool_auto_populate_loop())
     except Exception:
         pass
-    # Continuous Claude AI analysis loop
-    try:
-        from backend.ai.claude_analyzer import claude_analyzer_loop
-        _asyncio.create_task(claude_analyzer_loop())
-    except Exception:
-        pass
     # Multi-band spectrum mosaic loop
     try:
         from backend.sdr.spectrum_mosaic import spectrum_mosaic_loop

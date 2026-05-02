@@ -930,12 +930,6 @@ function _handleSseEvent(ev) {
       break;
     }
 
-    case 'claude_cycle':
-      // Refresh features after Claude analysis completes
-      if (ev.saved > 0 || ev.corrections > 0) {
-        setTimeout(() => refreshSource(), 1000);
-      }
-      break;
   }
 }
 
