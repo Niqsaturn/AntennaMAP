@@ -25,6 +25,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_BASE_PIN_CONFIDENCE_THRESHOLD = 0.30
+_SINGLE_DIRECTIONAL_PIN_CONFIDENCE_THRESHOLD = 0.85
+
 from backend.foxhunt.multilateration import (
     BearingObs,
     FusedFix,
@@ -535,10 +538,24 @@ class AutoFoxHuntLoop:
                 "methods": fix.methods_used,
                 "ellipse_major_m": fix.ellipse_major_m,
                 "ellipse_minor_m": fix.ellipse_minor_m,
+                "observability_class": _observability_class(target, fix),
+                "certainty_level": _certainty_level(fix.confidence),
             })
 
-            if fix.confidence >= 0.3:
+            confidence_threshold = _pin_confidence_threshold(target)
+            if fix.confidence >= confidence_threshold:
                 self._confirm_target(target)
+            else:
+                _emit("target_pending", {
+                    "freq_hz": target.freq_hz,
+                    "lat": fix.lat,
+                    "lon": fix.lon,
+                    "confidence": fix.confidence,
+                    "required_confidence": confidence_threshold,
+                    "reason": "uncertainty_first_overlay_mode",
+                    "observability_class": _observability_class(target, fix),
+                    "certainty_level": _certainty_level(fix.confidence),
+                })
         except Exception as exc:
             logger.warning("auto_loop: solve failed: %s", exc)
             with self._lock:
@@ -653,6 +670,8 @@ def _target_to_feature(target: FoxTarget) -> dict:
             "band_label": target.band_label,
             "modulation_hint": target.modulation_hint,
             "confidence": fix.confidence,
+            "certainty_level": _certainty_level(fix.confidence),
+            "observability_class": _observability_class(target, fix),
             "uncertainty_m": fix.uncertainty_m,
             "methods": fix.methods_used,
             "rssi_obs_count": len(target.rssi_obs),
@@ -671,6 +690,31 @@ def _target_to_feature(target: FoxTarget) -> dict:
             ],
         },
     }
+
+
+def _pin_confidence_threshold(target: FoxTarget) -> float:
+    """Pin threshold policy with stricter gate for single-directional-source solves."""
+    if len(target.bearing_obs) <= 1:
+        return _SINGLE_DIRECTIONAL_PIN_CONFIDENCE_THRESHOLD
+    return _BASE_PIN_CONFIDENCE_THRESHOLD
+
+
+def _observability_class(target: FoxTarget, fix: FusedFix) -> str:
+    """Return a simple observability classification label for UI metadata."""
+    if len(target.bearing_obs) <= 1:
+        return "single_directional_source"
+    if len(target.bearing_obs) >= 3 and fix.uncertainty_m <= 900:
+        return "well_observed"
+    return "multi_source_limited_geometry"
+
+
+def _certainty_level(confidence: float) -> str:
+    """Map confidence score to certainty label."""
+    if confidence >= 0.85:
+        return "high"
+    if confidence >= 0.55:
+        return "medium"
+    return "low"
 
 
 # ── Module-level singleton ────────────────────────────────────────────────────
