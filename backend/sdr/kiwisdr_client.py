@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from statistics import mean
 from typing import Any, Callable
 
+from backend.sdr.computed_spectrum import computed_psd
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -343,6 +345,7 @@ class KiwiNodePool:
     def __init__(self) -> None:
         self._nodes: list[dict] = []
         self._lock = threading.Lock()
+        self._frame_seq_by_node: dict[str, int] = {}
 
     def add_node(
         self,
@@ -368,6 +371,12 @@ class KiwiNodePool:
     def list_nodes(self) -> list[dict]:
         with self._lock:
             return list(self._nodes)
+
+    def _next_frame_seq(self, node_key: str) -> int:
+        with self._lock:
+            seq = self._frame_seq_by_node.get(node_key, 0) + 1
+            self._frame_seq_by_node[node_key] = seq
+        return seq
 
     def scan_rssi(self, freq_hz: float, timeout: float = 8.0) -> list[dict]:
         """Query all configured nodes in parallel and return RSSI readings.
@@ -409,20 +418,45 @@ class KiwiNodePool:
         def _query(node: dict) -> None:
             client = KiwiSdrClient(node["host"], node["port"])
             frames = client.read_frames(count=4)
+            avg_bins: list[float] | None = None
+            provenance = "live_api"
             if frames:
                 avg_bins = [mean(f.bins_db[i] for f in frames) for i in range(_KIWI_BINS)]
-                try:
-                    from backend.foxhunt.auto_loop import event_bus
-                    event_bus.publish({
-                        "type": "sdr_frame",
+            else:
+                avg_bins = computed_psd(
+                    center_freq_hz=_KIWI_PASSBAND_HZ / 2,
+                    sample_rate_hz=_KIWI_PASSBAND_HZ,
+                    n_bins=_KIWI_BINS,
+                )
+                provenance = "synthetic"
+            try:
+                from backend.foxhunt.auto_loop import event_bus
+                node_key = f"{node['host']}:{node['port']}"
+                frame_seq = self._next_frame_seq(node_key)
+                event_bus.publish({
+                    "type": "sdr_frame",
+                    "source": {
                         "node": node["host"],
-                        "bins": avg_bins,
-                        "center_freq_hz": _KIWI_PASSBAND_HZ / 2,
-                        "bw_hz": _KIWI_PASSBAND_HZ,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    })
-                except Exception:
-                    pass
+                        "host": node["host"],
+                        "port": node["port"],
+                    },
+                    "source_provenance": provenance,
+                    "frame_schema_version": 1,
+                    "frame_seq": frame_seq,
+                    "center_freq_hz": _KIWI_PASSBAND_HZ / 2,
+                    "span_hz": _KIWI_PASSBAND_HZ,
+                    "sample_rate_hz": _KIWI_PASSBAND_HZ,
+                    "fft_bins": avg_bins,
+                    "fft_bin_count": len(avg_bins),
+                    "calibration_offsets": {
+                        "freq_offset_hz": 0.0,
+                        "gain_offset_db": 0.0,
+                        "noise_floor_offset_db": 0.0,
+                    },
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception:
+                pass
             peaks = client.scan_peaks(min_snr_db)
             with peak_lock:
                 for p in peaks:

@@ -94,6 +94,7 @@ from backend.analysis.waterfall_analyzer import analyze_psd
 from backend.analysis.range_estimator import estimate_range_km
 from backend.analysis.bearing_tracker import estimate_bearing as estimate_bearing_track
 from backend.analysis.kalman_tracker import PositionKalman
+from backend.analysis.ai_correction_loop import ai_correction_loop
 from backend.training.trainer import train_single_triangulation_baseline
 from backend.training.triangulation_baseline import estimate_single_operator
 
@@ -109,6 +110,7 @@ MODELS_DIR = ROOT / "models"
 ML_MODELS_DIR = ROOT / "backend" / "ml" / "models"
 RUNTIME_CONFIG_FILE = ROOT / "backend" / "pipeline" / "data" / "runtime_config.json"
 TRAINING_STATUS_FILE = ROOT / "backend" / "pipeline" / "data" / "training_status.json"
+AI_PRIORS_FILE = ROOT / "backend" / "pipeline" / "data" / "ai_priors.json"
 
 
 class SDRConfigureRequest(BaseModel):
@@ -313,6 +315,7 @@ class LoopManager:
         self._last_successful_run_at: str | None = None
         self._last_run_duration_ms: float | None = None
         self._provider_errors: list[dict] = []
+        self._cycle_metrics: dict = {}
 
     def _record_error(self, provider: str, operation: str, exc: Exception) -> None:
         self._provider_errors = [
@@ -396,10 +399,101 @@ class LoopManager:
                     "last_successful_run_at": self._last_successful_run_at,
                 },
                 "provider_errors": self._provider_errors,
+                "cycle_metrics": self._cycle_metrics,
             }
+
+    def set_cycle_metrics(self, metrics: dict) -> None:
+        with self._lock:
+            self._cycle_metrics = metrics
 
 
 loop_manager = LoopManager()
+
+
+def _load_ai_priors() -> dict:
+    if AI_PRIORS_FILE.exists():
+        return json.loads(AI_PRIORS_FILE.read_text(encoding="utf-8"))
+    return {"by_band_tod": {}, "updated_at": None}
+
+
+def _save_ai_priors(priors: dict) -> None:
+    AI_PRIORS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    AI_PRIORS_FILE.write_text(json.dumps(priors, indent=2), encoding="utf-8")
+
+
+def _tod_bucket(ts: datetime | None = None) -> str:
+    hour = (ts or datetime.now(timezone.utc)).hour
+    if 5 <= hour < 12:
+        return "morning"
+    if 12 <= hour < 18:
+        return "afternoon"
+    if 18 <= hour < 23:
+        return "evening"
+    return "overnight"
+
+
+def _apply_ai_correction_loop(detections: list, samples: list[dict]) -> tuple[list, list[dict], dict]:
+    """Recalibrate detections and reject unstable candidates with audit trail."""
+    if not detections:
+        return [], [], {"offset_hz": 0.0, "noise_floor_dbm": -110.0}
+    freq_offsets = []
+    rssis = []
+    band_bearings: dict[str, list[float]] = {}
+    for s in samples:
+        f_hz = s.get("frequency_hz") or s.get("freq_hz")
+        f_mhz = s.get("frequency_mhz")
+        if f_hz and f_mhz:
+            freq_offsets.append(float(f_hz) - float(f_mhz) * 1e6)
+        if s.get("rssi_dbm") is not None:
+            rssis.append(float(s["rssi_dbm"]))
+        band = s.get("band") or s.get("freq_band")
+        b = s.get("bearing_deg")
+        if band and b is not None:
+            band_bearings.setdefault(str(band), []).append(float(b))
+    noise_floor = (sum(sorted(rssis)[:max(1, len(rssis) // 4)]) / max(1, len(rssis) // 4)) if rssis else -110.0
+    offset_hz = sum(freq_offsets) / len(freq_offsets) if freq_offsets else 0.0
+    priors = _load_ai_priors()
+    bucket = _tod_bucket()
+    corrected, audit = [], []
+    for d in detections:
+        band = d.freq_band or "unknown"
+        key = f"{band}:{bucket}"
+        prior = priors["by_band_tod"].get(key, {"mean_conf": 0.55, "count": 0})
+        before_conf = float(d.confidence)
+        band_samples = band_bearings.get(band, [])
+        unstable = False
+        reason = "accepted"
+        if d.bearing_deg is not None and len(band_samples) >= 2:
+            spread = max(band_samples) - min(band_samples)
+            if spread > 95:
+                unstable = True
+                reason = "rejected_unstable_bearing_spread"
+        if before_conf < 0.25 or (rssis and max(rssis) < (noise_floor + 2.0)):
+            unstable = True
+            reason = "rejected_low_confidence_or_below_noise_floor"
+        calibrated = max(0.0, min(1.0, before_conf * 0.7 + float(prior["mean_conf"]) * 0.3))
+        d.confidence = calibrated
+        priors["by_band_tod"][key] = {
+            "mean_conf": round((float(prior["mean_conf"]) * prior["count"] + calibrated) / (prior["count"] + 1), 4),
+            "count": prior["count"] + 1,
+        }
+        delta = round(calibrated - before_conf, 4)
+        entry = {
+            "signal_id": d.signal_id,
+            "reason": reason,
+            "before": {"confidence": before_conf},
+            "after": {"confidence": calibrated},
+            "confidence_delta": delta,
+            "offset_hz": round(offset_hz, 2),
+            "noise_floor_dbm": round(noise_floor, 2),
+            "rejected": unstable,
+        }
+        audit.append(entry)
+        if not unstable:
+            corrected.append(d)
+    priors["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_ai_priors(priors)
+    return corrected, audit, {"offset_hz": round(offset_hz, 2), "noise_floor_dbm": round(noise_floor, 2)}
 
 
 def _run_analysis_cycle(cfg: dict) -> None:
@@ -408,9 +502,42 @@ def _run_analysis_cycle(cfg: dict) -> None:
     import math as _math
     import time as _time
     t0 = _time.monotonic()
+    cycle_started_at = datetime.now(timezone.utc)
+    metrics: dict[str, Any] = {
+        "cycle_index": None,
+        "cycle_phase": "starting",
+        "live_frame_rate_fps": 0.0,
+        "last_waterfall_frame_age_ms": None,
+        "detections": 0,
+        "candidates": 0,
+        "tracks": 0,
+        "solver_attempts": 0,
+        "solver_successes": 0,
+        "solver_failures": 0,
+        "solver_failure_reasons": [],
+        "ai_corrections_applied": 0,
+        "ai_corrections_rejected": 0,
+        "map_publish_count": 0,
+        "map_publish_latency_ms_p50": 0.0,
+        "map_publish_latency_ms_p95": 0.0,
+        "cycle_started_at": cycle_started_at.isoformat(),
+    }
+    loop_snapshot = loop_manager.status()
+    if loop_snapshot.get("last_run", {}).get("started_at"):
+        metrics["cycle_index"] = int((loop_snapshot.get("cycle_metrics", {}).get("cycle_index") or 0) + 1)
 
     samples = read_jsonl(INGEST_LOG_FILE)[-cfg.get("limit_samples", 50):]
+    metrics["cycle_phase"] = "ingest_loaded"
+    if samples:
+        ts = [_parse_timestamp(s.get("timestamp", "")) for s in samples]
+        ts = [t for t in ts if t]
+        if len(ts) >= 2:
+            span = max((max(ts) - min(ts)).total_seconds(), 0.001)
+            metrics["live_frame_rate_fps"] = round(len(samples) / span, 3)
+        if ts:
+            metrics["last_waterfall_frame_age_ms"] = int((datetime.now(timezone.utc) - max(ts)).total_seconds() * 1000)
     if not samples:
+        loop_manager.set_cycle_metrics(metrics)
         return
 
     # Operator position from most recent telemetry with GPS
@@ -448,6 +575,7 @@ def _run_analysis_cycle(cfg: dict) -> None:
         if s.get("bearing_deg") is not None and s.get("lat") and s.get("lon")
     ]
     if len(tri_samples_raw) >= 3:
+        metrics["solver_attempts"] += 1
         try:
             ml_samples = [
                 MLTelemetrySample(
@@ -465,14 +593,21 @@ def _run_analysis_cycle(cfg: dict) -> None:
             ]
             wls = solve_weighted_least_squares(ml_samples)
             if wls.quality_score > 0.3:
+                metrics["solver_successes"] += 1
                 triangulation_anchor = {
                     "lat": wls.center_lat,
                     "lon": wls.center_lon,
                     "uncertainty_m": wls.ellipse_major_m / 2.0,
                     "quality_score": wls.quality_score,
                 }
+            else:
+                metrics["solver_failures"] += 1
+                metrics["solver_failure_reasons"].append("wls_quality_below_threshold")
         except Exception:
-            pass
+            metrics["solver_failures"] += 1
+            metrics["solver_failure_reasons"].append("triangulation_exception")
+    else:
+        metrics["solver_failure_reasons"].append("insufficient_triangulation_observations")
 
     # ------------------------------------------------------------------
     # FCC context
@@ -493,13 +628,30 @@ def _run_analysis_cycle(cfg: dict) -> None:
     result = detect_signals(
         samples, model_config, fcc_context, examples_text, op_lat, op_lon
     )
+    metrics["cycle_phase"] = "detected"
+    corrected_detections, correction_audit, correction_stats = _apply_ai_correction_loop(result.detections, samples)
+    metrics["candidates"] = len(result.detections)
+    result.detections = corrected_detections
+    metrics["detections"] = len(result.detections)
+    metrics["ai_corrections_applied"] = len([a for a in correction_audit if not a.get("rejected")])
+    metrics["ai_corrections_rejected"] = len([a for a in correction_audit if a.get("rejected")])
 
     # ------------------------------------------------------------------
     # Generate and persist speculative features
     # ------------------------------------------------------------------
     speculative = []
+    publish_latencies_ms = []
     if result.detections:
+        metrics["cycle_phase"] = "publishing"
         speculative = speculate_from_detections(result.detections, op_lat, op_lon)
+        metrics["tracks"] = len(speculative)
+        audit_by_signal = {a["signal_id"]: a for a in correction_audit}
+        for feat in speculative:
+            props = feat.get("properties", {})
+            sid = props.get("signal_id")
+            if sid and sid in audit_by_signal:
+                props["correction_audit"] = audit_by_signal[sid]
+            props["correction_stats"] = correction_stats
 
         # Override position with triangulation anchor when WLS quality is high
         if triangulation_anchor and triangulation_anchor["quality_score"] > 0.6:
@@ -515,6 +667,7 @@ def _run_analysis_cycle(cfg: dict) -> None:
 
         for feat in speculative:
             try:
+                p0 = _time.monotonic()
                 upsert_feature(feat)
                 # Apply Kalman smoothing to persisted position
                 fid = feat.get("properties", {}).get("id")
@@ -529,14 +682,10 @@ def _run_analysis_cycle(cfg: dict) -> None:
                     feat.get("properties", {})["kalman_uncertainty_m"] = round(s_unc, 1)
                     upsert_feature(feat)
                     kf.save(fid)
-                # Auto-generate EM field overlay for high-confidence features
-                try:
-                    from backend.analysis.em_field_auto import maybe_generate_em_field
-                    maybe_generate_em_field(feat)
-                except Exception:
-                    pass
+                publish_latencies_ms.append(round((_time.monotonic() - p0) * 1000, 2))
             except Exception as e:
                 logger.warning("failed to save kalman state for %s: %s", fid, e)
+                metrics["solver_failure_reasons"].append("map_publish_exception")
 
     # ------------------------------------------------------------------
     # Mark operator's current tile as analyzed
@@ -579,6 +728,16 @@ def _run_analysis_cycle(cfg: dict) -> None:
     # Log analysis result
     # ------------------------------------------------------------------
     ms = (_time.monotonic() - t0) * 1000
+    metrics["cycle_phase"] = "completed"
+    metrics["map_publish_count"] = len(publish_latencies_ms)
+    if publish_latencies_ms:
+        lat_sorted = sorted(publish_latencies_ms)
+        p50_idx = max(0, int(0.5 * (len(lat_sorted) - 1)))
+        p95_idx = max(0, int(0.95 * (len(lat_sorted) - 1)))
+        metrics["map_publish_latency_ms_p50"] = lat_sorted[p50_idx]
+        metrics["map_publish_latency_ms_p95"] = lat_sorted[p95_idx]
+    metrics["cycle_duration_ms"] = round(ms, 1)
+    loop_manager.set_cycle_metrics(metrics)
     try:
         log_analysis(
             model=cfg.get("model", ""),
@@ -720,6 +879,16 @@ def _telemetry_in_window(timestamp_lte: str | None) -> tuple[list[dict], datetim
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok", "service": "antennamap", **policy_status()}
+
+
+@app.get("/api/status")
+def status() -> dict:
+    from backend.foxhunt.auto_loop import event_bus
+    return {
+        "status": "ok",
+        "service": "antennamap",
+        "sdr_events": event_bus.sdr_stats(),
+    }
 
 
 @app.post("/api/loop/pause")
@@ -1084,10 +1253,19 @@ async def analysis_run(body: AnalysisRunRequest) -> dict:
     model_config = {"provider": body.provider, "model": body.model}
 
     result = detect_signals(samples, model_config, fcc_context, examples_text, op_lat, op_lon)
+    corrected_detections, correction_audit, correction_stats = _apply_ai_correction_loop(result.detections, samples)
+    result.detections = corrected_detections
 
     speculative_features = []
     if result.detections and (op_lat or op_lon):
         speculative_features = speculate_from_detections(result.detections, op_lat, op_lon)
+        audit_by_signal = {a["signal_id"]: a for a in correction_audit}
+        for feat in speculative_features:
+            props = feat.get("properties", {})
+            sid = props.get("signal_id")
+            if sid and sid in audit_by_signal:
+                props["correction_audit"] = audit_by_signal[sid]
+            props["correction_stats"] = correction_stats
         for feat in speculative_features:
             try:
                 upsert_feature(feat)
@@ -1699,6 +1877,10 @@ async def _capture_loop() -> None:
         _auto_loop._start_idle()
     except Exception:
         pass
+    try:
+        ai_correction_loop.start()
+    except Exception:
+        pass
     # Auto-populate KiwiSDR nodes from public directory (fire-and-forget)
     try:
         _asyncio.create_task(node_pool_auto_populate_loop())
@@ -1883,6 +2065,7 @@ class FoxBearingRequest(BaseModel):
     freq_hz: float | None = None
     lat: float | None = None   # override operator position
     lon: float | None = None
+    source: str = "manual"
 
 
 class FoxMultilatRequest(BaseModel):
@@ -1890,6 +2073,28 @@ class FoxMultilatRequest(BaseModel):
     tdoa_obs: list[dict] = []
     bearing_obs: list[dict] = []
     freq_hz: float = 100e6
+
+
+
+
+@app.post("/api/ai/corrections/start")
+def ai_corrections_start() -> dict:
+    return {"ok": True, "loop": ai_correction_loop.start()}
+
+
+@app.post("/api/ai/corrections/stop")
+def ai_corrections_stop() -> dict:
+    return {"ok": True, "loop": ai_correction_loop.stop()}
+
+
+@app.get("/api/ai/corrections/status")
+def ai_corrections_status() -> dict:
+    return ai_correction_loop.status()
+
+
+@app.post("/api/ai/corrections/run_once")
+def ai_corrections_run_once() -> dict:
+    return ai_correction_loop.run_once()
 
 
 @app.post("/api/foxhunt/auto/start")
@@ -1919,8 +2124,40 @@ def foxhunt_add_bearing(req: FoxBearingRequest):
     from backend.foxhunt.auto_loop import auto_loop
     if req.lat is not None and req.lon is not None:
         auto_loop.update_operator_position(req.lat, req.lon)
-    result = auto_loop.add_bearing_observation(req.bearing_deg, req.snr_db, req.freq_hz)
+    result = auto_loop.add_bearing_observation(req.bearing_deg, req.snr_db, req.freq_hz, req.source)
     return result
+
+
+@app.post("/api/foxhunt/autonomous/start")
+def foxhunt_autonomous_start(req: FoxHuntStartRequest):
+    from backend.foxhunt.auto_loop import auto_loop
+    from backend.foxhunt.policy import auto_policy
+    auto_loop.scan_interval_s = req.scan_interval_s
+    auto_loop.min_obs_to_solve = req.min_obs_to_solve
+    auto_loop.start(req.lat, req.lon)
+    return {"ok": True, "loop": auto_loop.status(), "policy": auto_policy.start()}
+
+
+@app.post("/api/foxhunt/autonomous/stop")
+def foxhunt_autonomous_stop():
+    from backend.foxhunt.auto_loop import auto_loop
+    from backend.foxhunt.policy import auto_policy
+    auto_policy.stop()
+    auto_loop.stop()
+    return {"ok": True, "policy": auto_policy.status(), "loop": auto_loop.status()}
+
+
+@app.get("/api/foxhunt/autonomous/status")
+def foxhunt_autonomous_status():
+    from backend.foxhunt.auto_loop import auto_loop
+    from backend.foxhunt.policy import auto_policy
+    return {"loop": auto_loop.status(), "policy": auto_policy.status()}
+
+
+@app.post("/api/foxhunt/autonomous/cycle")
+def foxhunt_autonomous_cycle():
+    from backend.foxhunt.policy import auto_policy
+    return auto_policy.execute_cycle()
 
 
 @app.post("/api/foxhunt/auto/position")

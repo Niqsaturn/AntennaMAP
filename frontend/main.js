@@ -1,6 +1,7 @@
 const _DARK_STYLE = {
   version: 8,
   name: 'dark',
+  glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
   sources: {
     'osm-tiles': {
       type: 'raster',
@@ -10,12 +11,7 @@ const _DARK_STYLE = {
     },
   },
   layers: [
-    { id: 'sky', type: 'sky', paint: {
-      'sky-type': 'atmosphere',
-      'sky-atmosphere-sun': [0.0, 90.0],
-      'sky-atmosphere-sun-intensity': 5,
-      'sky-atmosphere-color': 'rgba(15,23,42,0.9)',
-    } },
+    // Keep schema-safe base ordering: background first, then raster/vector layers only.
     { id: 'background', type: 'background', paint: { 'background-color': '#0f172a' } },
     { id: 'osm', type: 'raster', source: 'osm-tiles', paint: { 'raster-opacity': 0.55, 'raster-saturation': -0.7, 'raster-brightness-min': 0.05 } },
   ],
@@ -28,16 +24,27 @@ const map = new maplibregl.Map({
   center: [0, 20], zoom: 1.8, pitch: 0, bearing: 0, antialias: true,
 });
 
+const _oneShotDiagnostics = new Set();
+function _diagOnce(key, message, err = null) {
+  if (_oneShotDiagnostics.has(key)) return;
+  _oneShotDiagnostics.add(key);
+  if (err) console.warn(message, err);
+  else console.warn(message);
+}
+
 // Globe slow-spin - paused while user interacts
 let _spinActive = true;
 let _spinResumeTimer = null;
+let _globeSpinSupported = false;
 function _spinGlobe() {
+  if (!_globeSpinSupported) return;
   try {
     if (_spinActive && map.getZoom() < 5) {
       map.setCenter([map.getCenter().lng + 0.06, map.getCenter().lat]);
     }
   } catch (e) {
-    // silently fail spin on globe mode
+    _globeSpinSupported = false;
+    _diagOnce('spin-runtime', 'Globe spin disabled due to runtime map capability mismatch.', e);
   }
   requestAnimationFrame(_spinGlobe);
 }
@@ -59,15 +66,20 @@ const spectToggle     = document.getElementById('spectToggle');
 const rayToggle       = document.getElementById('rayToggle');
 const sectorToggle    = document.getElementById('sectorToggle');
 const confidenceToggle= document.getElementById('confidenceToggle');
+const rangeBandToggle = document.getElementById('rangeBandToggle');
 const coverageToggle  = document.getElementById('coverageToggle');
 const satelliteToggle = document.getElementById('satelliteToggle');
 const bayesToggle     = document.getElementById('bayesToggle');
 const timeRange       = document.getElementById('timeRange');
 const timeLabel       = document.getElementById('timeLabel');
 const loopStatus        = document.getElementById('loopStatus');
+const loopDebugStatus   = document.getElementById('loopDebugStatus');
 const sdrStatus         = document.getElementById('sdrStatus');
 const coverageStatus    = document.getElementById('coverageStatus');
 const calibrationStatus = document.getElementById('calibrationStatus');
+const featureHealthStatus = document.getElementById('featureHealthStatus');
+const renderHealthStatus = document.getElementById('renderHealthStatus');
+const sdrEventStatus = document.getElementById('sdrEventStatus');
 const modelDropdown   = document.getElementById('modelSelect');
 const satGroupSelect  = document.getElementById('satGroup');
 const analyzeBtn      = document.getElementById('analyzeNow');
@@ -75,10 +87,56 @@ const seedBtn         = document.getElementById('seedRegion');
 const loopIntervalEl  = document.getElementById('loopInterval');
 const analysisLog     = document.getElementById('analysisLog');
 const logHeader       = document.getElementById('analysisLogHeader');
+const goToLatLon      = document.getElementById('goToLatLon');
+const goToBtn         = document.getElementById('goToBtn');
 
 let sortedTimes = [];
 let sourcesInitialized = false;
 let selectedModel = '';
+const health = {
+  lastFeatureFetchOkAt: null,
+  counts: { infrastructure: 0, estimate: 0, speculative: 0, fox_targets: 0 },
+  render: { features: 'pending', speculative: 'pending', satellites: 'pending', fox_targets: 'pending' },
+};
+
+
+function _hasValidGlyphs() {
+  try {
+    const styleGlyphs = map.getStyle && map.getStyle()?.glyphs;
+    const configuredGlyphs = _DARK_STYLE?.glyphs;
+    const glyphs = styleGlyphs || configuredGlyphs;
+    return typeof glyphs === 'string' && glyphs.includes('{fontstack}') && glyphs.includes('{range}');
+  } catch (_) {
+    return false;
+  }
+}
+
+function _safeSetSourceData(sourceId, data, statusKey) {
+  try {
+    const src = map.getSource(sourceId);
+    if (!src) throw new Error(`source ${sourceId} missing`);
+    src.setData(data);
+    if (statusKey) health.render[statusKey] = 'ok';
+    return true;
+  } catch (err) {
+    if (statusKey) health.render[statusKey] = `error: ${err.message}`;
+    return false;
+  }
+}
+
+function _renderHealth() {
+  if (featureHealthStatus) {
+    const lastOk = health.lastFeatureFetchOkAt ? new Date(health.lastFeatureFetchOkAt).toLocaleTimeString() : 'never';
+    featureHealthStatus.innerHTML =
+      `<strong>Features:</strong> last OK ${lastOk}<br>` +
+      `infra ${health.counts.infrastructure} · estimate ${health.counts.estimate} · speculative ${health.counts.speculative} · fox ${health.counts.fox_targets}`;
+  }
+  if (renderHealthStatus) {
+    renderHealthStatus.innerHTML =
+      `<strong>Render:</strong> features ${health.render.features}<br>` +
+      `spec ${health.render.speculative} · sats ${health.render.satellites} · fox ${health.render.fox_targets}`;
+  }
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const formatFreqHz = (hz) => `${(hz / 1_000_000).toFixed(3)} MHz`;
@@ -99,6 +157,7 @@ function cutoffFromSlider() {
 
 const popupHtml = (p) => {
   const conf = p.confidence != null ? `<br>Confidence: ${(p.confidence * 100).toFixed(0)}%` : '';
+  const overlayAssumptions = `<br>Assumptions: range from RSSI/SNR + propagation model; single-source geometry shown as likelihood, not fixed point.`;
   const count = p.analysis_count != null ? ` (${p.analysis_count} obs)` : '';
   const source = p.source ? `<br>Source: ${p.source}` : '';
   const notes = p.notes ? `<br>Notes: ${p.notes}` : '';
@@ -107,7 +166,7 @@ const popupHtml = (p) => {
     : '';
   return `<strong>${p.name || p.id}</strong><br>Kind: ${p.kind}${conf}${count}` +
     `<br>Freq: ${p.freq_band || '-'}<br>Type: ${p.antenna_type || p.structure_type || '-'}` +
-    `<br>Azimuth: ${p.azimuth_deg ?? '-'}°${source}${notes}${confirmRow}`;
+    `<br>Azimuth: ${p.azimuth_deg ?? '-'}°${source}${notes}${overlayAssumptions}${confirmRow}`;
 };
 
 // ── SDR Status ─────────────────────────────────────────────────────────────
@@ -132,13 +191,39 @@ async function refreshLoopStatus() {
   try {
     const s = await fetch('/api/loop/status').then((r) => r.json());
     const last = s.last_run?.last_successful_run_at ?? 'never';
+    const m = s.cycle_metrics || {};
     loopStatus.innerHTML =
       `<strong>Loop:</strong> ${s.active ? 'running' : 'paused'} · ` +
       `<strong>Provider:</strong> ${s.config.provider} · ` +
       `<strong>Model:</strong> ${s.config.model || '-'}<br>` +
       `<strong>Interval:</strong> ${s.config.interval_seconds}s · ` +
       `<strong>Last OK:</strong> ${last.slice(0, 19).replace('T', ' ')}`;
+    if (loopDebugStatus) {
+      const reasons = (m.solver_failure_reasons || []).slice(0, 3).join(', ') || 'none';
+      const frameAgeSec = Number.isFinite(m.last_waterfall_frame_age_ms) ? (m.last_waterfall_frame_age_ms / 1000).toFixed(1) : '-';
+      loopDebugStatus.innerHTML =
+        `<strong>Cycle:</strong> #${m.cycle_index ?? '-'} · phase ${m.cycle_phase || '-'}<br>` +
+        `<strong>Waterfall:</strong> ${m.live_frame_rate_fps ?? 0} fps · age ${frameAgeSec}s<br>` +
+        `<strong>Counts:</strong> det ${m.detections ?? 0} · cand ${m.candidates ?? 0} · tracks ${m.tracks ?? 0}<br>` +
+        `<strong>Solver:</strong> attempts ${m.solver_attempts ?? 0} · ok ${m.solver_successes ?? 0} · fail ${m.solver_failures ?? 0} (${reasons})<br>` +
+        `<strong>AI corrections:</strong> applied ${m.ai_corrections_applied ?? 0} · rejected ${m.ai_corrections_rejected ?? 0}<br>` +
+        `<strong>Map publish:</strong> ${m.map_publish_count ?? 0} · p50 ${m.map_publish_latency_ms_p50 ?? 0}ms · p95 ${m.map_publish_latency_ms_p95 ?? 0}ms`;
+    }
   } catch (_) { loopStatus.textContent = 'Loop: unavailable'; }
+}
+
+async function refreshSystemStatus() {
+  if (!sdrEventStatus) return;
+  try {
+    const s = await fetch('/api/status').then((r) => r.json());
+    const stats = s.sdr_events || {};
+    const last = stats.last_frame_timestamp ? stats.last_frame_timestamp.slice(0, 19).replace('T', ' ') : 'never';
+    sdrEventStatus.innerHTML =
+      `<strong>SDR events:</strong> ${stats.frames_emitted ?? 0} emitted · ` +
+      `${stats.schema_rejects ?? 0} rejected<br><strong>Last frame:</strong> ${last}`;
+  } catch (_) {
+    sdrEventStatus.textContent = 'SDR events: unavailable';
+  }
 }
 
 // ── Model Dropdown ─────────────────────────────────────────────────────────
@@ -181,27 +266,40 @@ async function refreshSource() {
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
+    health.lastFeatureFetchOkAt = new Date().toISOString();
+    const allFeatures = data.features || [];
+    health.counts.infrastructure = allFeatures.filter((f) => f.properties.kind === 'infrastructure').length;
+    health.counts.estimate = allFeatures.filter((f) => f.properties.kind === 'estimate').length;
     const visibleSites = (data.features || []).filter((f) =>
       (f.properties.kind === 'infrastructure' && infraToggle?.checked) ||
       (f.properties.kind === 'estimate' && estToggle?.checked)
     );
 
-  const rays = [], sectors = [], confidence = [];
+  const rays = [], sectors = [], confidence = [], rangeBands = [], uncertaintyPolygons = [];
   visibleSites.forEach((f) => {
     const o = f.properties.overlay_geometries || {};
     const ray = asFeature(f, o.direction_ray, 'direction_ray');
     const sector = asFeature(f, o.sector_wedge, 'sector_wedge');
     const ellipse = asFeature(f, o.confidence_ellipse, 'confidence_ellipse');
+    const rangeBand = asFeature(f, o.range_likely_band, 'range_likely_band');
+    const uncertainty = asFeature(f, o.uncertainty_polygon, 'uncertainty_polygon');
     if (ray) rays.push(ray);
     if (sector) sectors.push(sector);
     if (ellipse) confidence.push(ellipse);
+    if (rangeBand) rangeBands.push(rangeBand);
+    if (uncertainty) uncertaintyPolygons.push(uncertainty);
   });
 
-    map.getSource('sites').setData({ type: 'FeatureCollection', features: visibleSites });
-    map.getSource('rays').setData({ type: 'FeatureCollection', features: rayToggle?.checked ? rays : [] });
-    map.getSource('sectors').setData({ type: 'FeatureCollection', features: sectorToggle?.checked ? sectors : [] });
-    map.getSource('confidence').setData({ type: 'FeatureCollection', features: confidenceToggle?.checked ? confidence : [] });
+    _safeSetSourceData('sites', { type: 'FeatureCollection', features: visibleSites }, 'features');
+    _safeSetSourceData('rays', { type: 'FeatureCollection', features: rayToggle?.checked ? rays : [] }, 'features');
+    _safeSetSourceData('sectors', { type: 'FeatureCollection', features: sectorToggle?.checked ? sectors : [] }, 'features');
+    _safeSetSourceData('confidence', { type: 'FeatureCollection', features: confidenceToggle?.checked ? confidence : [] }, 'features');
+    _safeSetSourceData('range-bands', { type: 'FeatureCollection', features: rangeBandToggle?.checked ? rangeBands : [] }, 'features');
+    _safeSetSourceData('uncertainty-polygons', { type: 'FeatureCollection', features: confidenceToggle?.checked ? uncertaintyPolygons : [] }, 'features');
+    _renderHealth();
   } catch (err) {
+    health.render.features = `error: ${err.message}`;
+    _renderHealth();
     console.warn('refreshSource error:', err.message);
   }
 }
@@ -215,23 +313,30 @@ async function refreshSpeculative() {
       `&lat_min=${bounds.getSouth().toFixed(4)}&lat_max=${bounds.getNorth().toFixed(4)}` +
       `&lon_min=${bounds.getWest().toFixed(4)}&lon_max=${bounds.getEast().toFixed(4)}&limit=300`;
     const data = await fetch(url).then((r) => r.json());
+    health.counts.speculative = (data.features || []).length;
 
-    const rays = [], sectors = [], ellipses = [];
+    const rays = [], sectors = [], ellipses = [], rangeBands = [], uncertaintyPolygons = [];
     (data.features || []).forEach((f) => {
       const o = f.properties.overlay_geometries || {};
       if (o.direction_ray) rays.push(asFeature(f, o.direction_ray, 'direction_ray'));
       if (o.sector_wedge) sectors.push(asFeature(f, o.sector_wedge, 'sector_wedge'));
       if (o.confidence_ellipse) ellipses.push(asFeature(f, o.confidence_ellipse, 'confidence_ellipse'));
+      if (o.range_likely_band) rangeBands.push(asFeature(f, o.range_likely_band, 'range_likely_band'));
+      if (o.uncertainty_polygon) uncertaintyPolygons.push(asFeature(f, o.uncertainty_polygon, 'uncertainty_polygon'));
     });
 
-    map.getSource('speculative').setData({
+    _safeSetSourceData('speculative', {
       type: 'FeatureCollection',
       features: spectToggle.checked ? (data.features || []) : [],
-    });
-    map.getSource('spec-rays').setData({ type: 'FeatureCollection', features: rayToggle.checked ? rays : [] });
-    map.getSource('spec-sectors').setData({ type: 'FeatureCollection', features: sectorToggle.checked ? sectors : [] });
-    map.getSource('spec-ellipses').setData({ type: 'FeatureCollection', features: confidenceToggle.checked ? ellipses : [] });
-  } catch (_) {}
+    }, 'speculative');
+    _safeSetSourceData('spec-rays', { type: 'FeatureCollection', features: rayToggle.checked ? rays : [] }, 'speculative');
+    _safeSetSourceData('spec-sectors', { type: 'FeatureCollection', features: sectorToggle.checked ? sectors : [] }, 'speculative');
+    _safeSetSourceData('spec-ellipses', { type: 'FeatureCollection', features: confidenceToggle.checked ? ellipses : [] }, 'speculative');
+    _safeSetSourceData('spec-range-bands', { type: 'FeatureCollection', features: rangeBandToggle.checked ? rangeBands : [] }, 'speculative');
+    _safeSetSourceData('spec-uncertainty-polygons', { type: 'FeatureCollection', features: confidenceToggle.checked ? uncertaintyPolygons : [] }, 'speculative');
+  } catch (err) {
+    health.render.speculative = `error: ${err.message}`;
+  } finally { _renderHealth(); }
 }
 
 // ── Coverage layer ─────────────────────────────────────────────────────────
@@ -254,8 +359,10 @@ async function refreshSatellites() {
   try {
     const group = satGroupSelect?.value || 'geo';
     const data = await fetch(`/api/satellites/positions?group=${group}&limit=40`).then((r) => r.json());
-    map.getSource('satellites').setData(data.geojson || { type: 'FeatureCollection', features: [] });
-  } catch (_) {}
+    _safeSetSourceData('satellites', data.geojson || { type: 'FeatureCollection', features: [] }, 'satellites');
+  } catch (err) {
+    health.render.satellites = `error: ${err.message}`;
+  } finally { _renderHealth(); }
 }
 
 // ── Analysis Log ───────────────────────────────────────────────────────────
@@ -367,23 +474,80 @@ async function refreshUncertain() {
   } catch (_) {}
 }
 
+
+
+function parseLatLon(input) {
+  if (!input) return null;
+  const parts = input.split(',').map((part) => Number(part.trim()));
+  if (parts.length !== 2 || parts.some((n) => Number.isNaN(n))) return null;
+  const [lat, lon] = parts;
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+  return { lat, lon };
+}
+
+function setupGoToLatLon() {
+  const go = () => {
+    const parsed = parseLatLon(goToLatLon?.value || '');
+    if (!parsed) {
+      if (details) details.textContent = 'Invalid lat/lon. Use format: lat, lon (e.g. 37.7749, -122.4194).';
+      return;
+    }
+    map.flyTo({ center: [parsed.lon, parsed.lat], zoom: Math.max(map.getZoom(), 9), speed: 0.8 });
+    if (details) details.textContent = `Moved map to ${parsed.lat.toFixed(5)}, ${parsed.lon.toFixed(5)}.`;
+  };
+  goToBtn?.addEventListener('click', go);
+  goToLatLon?.addEventListener('keydown', (evt) => {
+    if (evt.key === 'Enter') go();
+  });
+}
 // ── Map load ───────────────────────────────────────────────────────────────
 map.on('load', async () => {
-  // Setup globe fog and spin
-  try {
-    map.setFog({
-      color: 'rgba(15,23,42,0.85)',
-      'high-color': '#1e3a5f',
-      'horizon-blend': 0.04,
-      'space-color': '#0f172a',
-      'star-intensity': 0.35,
-    });
+  // Setup globe fog/spin only when capabilities are available.
+  const canGetProjection = typeof map.getProjection === 'function';
+  const canSetFog = typeof map.setFog === 'function';
+  const projection = typeof map.getProjection === 'function' ? map.getProjection() : null;
+  const projectionName = projection && typeof projection === 'object' ? projection.name : null;
+  const isGlobeProjection = projectionName === 'globe';
+  const fogCompatibleProjection = !projectionName || isGlobeProjection;
+
+  if (canSetFog && fogCompatibleProjection) {
+    try {
+      map.setFog({
+        color: 'rgba(15,23,42,0.85)',
+        'high-color': '#1e3a5f',
+        'horizon-blend': 0.04,
+        'space-color': '#0f172a',
+        'star-intensity': 0.35,
+      });
+    } catch (err) {
+      _diagOnce('fog-runtime', 'Fog unsupported at runtime; continuing without fog.', err);
+    }
+  } else {
+    _diagOnce(
+      'fog-capability',
+      `Fog unavailable (setFog=${canSetFog}, projection=${projectionName || 'unknown'}); continuing without fog.`
+    );
+  }
+
+  _globeSpinSupported = canGetProjection && isGlobeProjection;
+  if (_globeSpinSupported) {
     requestAnimationFrame(_spinGlobe);
-  } catch (e) {
-    console.warn('fog setup skipped:', e.message);
+  } else {
+    _diagOnce(
+      'spin-capability',
+      `Globe spin unavailable (getProjection=${canGetProjection}, projection=${projectionName || 'unknown'}); continuing without globe spin.`
+    );
   }
 
   map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+  map.addControl(new maplibregl.GeolocateControl({
+    positionOptions: { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    trackUserLocation: true,
+    showUserHeading: true,
+  }), 'bottom-right');
+  map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-left');
+  map.addControl(new maplibregl.FullscreenControl(), 'top-right');
+  setupGoToLatLon();
 
   // Seed GeoJSON features from API
   const seed = await fetch('/api/features').then((r) => r.json()).catch(() => ({ features: [] }));
@@ -394,13 +558,19 @@ map.on('load', async () => {
   map.addSource('rays',       { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('sectors',    { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('confidence', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('range-bands', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('uncertainty-polygons', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('speculative',{ type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('spec-rays',  { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('spec-sectors',{ type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('spec-ellipses',{ type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('spec-range-bands',{ type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('spec-uncertainty-polygons',{ type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('coverage',             { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('satellites',           { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('speculative-uncertain',{ type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+
+  const canRenderSymbolText = _hasValidGlyphs();
 
   // ── Layers - base ────────────────────────────────────────────────────────
   map.addLayer({ id: 'infra-layer',    type: 'circle', source: 'sites',
@@ -415,12 +585,20 @@ map.on('load', async () => {
     paint: { 'fill-color': '#7ac37a', 'fill-opacity': 0.2 } });
   map.addLayer({ id: 'confidence-layer',type: 'fill', source: 'confidence',
     paint: { 'fill-color': '#ffc857', 'fill-opacity': 0.2 } });
+  map.addLayer({ id: 'range-band-layer',type: 'fill', source: 'range-bands',
+    paint: { 'fill-color': '#38bdf8', 'fill-opacity': 0.12 } });
+  map.addLayer({ id: 'uncertainty-polygon-layer',type: 'line', source: 'uncertainty-polygons',
+    paint: { 'line-color': '#f59e0b', 'line-width': 1.5, 'line-dasharray': [2, 2] } });
 
   // ── Layers - speculative ─────────────────────────────────────────────────
   map.addLayer({ id: 'spec-sector-layer', type: 'fill', source: 'spec-sectors',
     paint: { 'fill-color': '#c084fc', 'fill-opacity': 0.15 } });
   map.addLayer({ id: 'spec-ellipse-layer', type: 'fill', source: 'spec-ellipses',
     paint: { 'fill-color': '#c084fc', 'fill-opacity': 0.12 } });
+  map.addLayer({ id: 'spec-range-band-layer', type: 'fill', source: 'spec-range-bands',
+    paint: { 'fill-color': '#a78bfa', 'fill-opacity': 0.1 } });
+  map.addLayer({ id: 'spec-uncertainty-polygon-layer', type: 'line', source: 'spec-uncertainty-polygons',
+    paint: { 'line-color': '#e879f9', 'line-width': 1.2, 'line-dasharray': [2, 2] } });
   map.addLayer({ id: 'spec-ray-layer', type: 'line', source: 'spec-rays',
     paint: { 'line-color': '#c084fc', 'line-width': 1.5, 'line-dasharray': [4, 2] } });
   map.addLayer({ id: 'speculative-layer', type: 'circle', source: 'speculative',
@@ -456,9 +634,13 @@ map.on('load', async () => {
   // ── Layers - satellites ──────────────────────────────────────────────────
   map.addLayer({ id: 'satellite-layer', type: 'circle', source: 'satellites',
     paint: { 'circle-radius': 5, 'circle-color': '#ffffff', 'circle-stroke-width': 1.5, 'circle-stroke-color': '#60a5fa' } });
-  map.addLayer({ id: 'satellite-label', type: 'symbol', source: 'satellites',
-    layout: { 'text-field': ['get', 'name'], 'text-size': 9, 'text-offset': [0, 1.2] },
-    paint: { 'text-color': '#ffffff', 'text-halo-color': '#000', 'text-halo-width': 1 } });
+  if (canRenderSymbolText) {
+    map.addLayer({ id: 'satellite-label', type: 'symbol', source: 'satellites',
+      layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': 9, 'text-offset': [0, 1.2] },
+      paint: { 'text-color': '#ffffff', 'text-halo-color': '#000', 'text-halo-width': 1 } });
+  } else {
+    console.warn('Map style glyphs unavailable; skipping satellite symbol labels.');
+  }
 
   sourcesInitialized = true;
 
@@ -473,7 +655,7 @@ map.on('load', async () => {
   });
 
   // ── Toggle listeners ─────────────────────────────────────────────────────
-  [infraToggle, estToggle, rayToggle, sectorToggle, confidenceToggle, timeRange].forEach(
+  [infraToggle, estToggle, rayToggle, sectorToggle, confidenceToggle, rangeBandToggle, timeRange].forEach(
     (el) => el?.addEventListener('input', refreshSource)
   );
   spectToggle?.addEventListener('change', refreshSpeculative);
@@ -484,7 +666,7 @@ map.on('load', async () => {
   });
   satelliteToggle?.addEventListener('change', () => {
     const vis = satelliteToggle.checked ? 'visible' : 'none';
-    ['satellite-layer', 'satellite-label'].forEach((l) => map.setLayoutProperty(l, 'visibility', vis));
+    ['satellite-layer', ...(map.getLayer('satellite-label') ? ['satellite-label'] : [])].forEach((l) => map.setLayoutProperty(l, 'visibility', vis));
     if (satelliteToggle.checked) refreshSatellites();
   });
   satGroupSelect?.addEventListener('change', refreshSatellites);
@@ -505,6 +687,7 @@ map.on('load', async () => {
   refreshSource();
   refreshLoopStatus();
   refreshSdrStatus();
+  refreshSystemStatus();
   populateModelDropdown();
   refreshSpeculative();
   refreshAnalysisLog();
@@ -514,6 +697,7 @@ map.on('load', async () => {
   // ── Polling intervals ─────────────────────────────────────────────────────
   setInterval(refreshLoopStatus, 10000);
   setInterval(refreshSdrStatus, 30000);
+  setInterval(refreshSystemStatus, 10000);
   setInterval(refreshSpeculative, 15000);
   setInterval(refreshAnalysisLog, 30000);
   setInterval(refreshCoverage, 60000);
@@ -557,18 +741,16 @@ const rediscoverBtn       = document.getElementById('rediscoverNodes');
 const nodeDiscoveryStatus = document.getElementById('nodeDiscoveryStatus');
 const waterfallCanvas= document.getElementById('waterfallCanvas');
 const wfFreqAxis     = document.getElementById('waterfallFreqAxis');
-const waterfallCanvasVhf = document.getElementById('waterfallCanvasVhf');
-const wfFreqAxisVhf  = document.getElementById('waterfallFreqAxisVhf');
-const vhfBandLabel   = document.getElementById('vhfBandLabel');
-const autoBearingStatus = document.getElementById('autoBearingStatus');
-const emFieldToggle  = document.getElementById('emFieldToggle');
-const beamPatternToggle = document.getElementById('beamPatternToggle');
+const waterfallStatus = document.getElementById('waterfallStatus');
 const peakList       = document.getElementById('peakList');
 const foxToggle      = document.getElementById('foxToggle');
 const bearingRayToggle = document.getElementById('bearingRayToggle');
 const waterfallHeader = document.getElementById('waterfallHeader');
 const waterfallContainer = document.getElementById('waterfallContainer');
 const peakListHeader = document.getElementById('peakListHeader');
+const autoHuntToggle = document.getElementById('autoHuntToggle');
+const autoPolicyPhase = document.getElementById('autoPolicyPhase');
+let _autoHuntEnabled = false;
 
 // ── Waterfall state ───────────────────────────────────────────────────────
 const WF_BINS = 1024;
@@ -576,18 +758,55 @@ const WF_ROWS = 120;   // pixel height
 let _wfCtx = null;
 let _wfImageData = null;
 let _wfRowCount = 0;
-let _wfVhfCtx = null;
-let _wfVhfImageData = null;
+let _wfBins = WF_BINS;
+let _wfCenterFreqHz = null;
+let _wfBandwidthHz = null;
+let _wfLastFrameAt = 0;
+let _wfDecodeMismatchCount = 0;
+let _wfLastSeqByNode = new Map();
+let _wfDroppedFrameCount = 0;
+const _wfStaleTimeoutMs = 15000;
 
 function _initWaterfall() {
   if (!waterfallCanvas) return;
-  waterfallCanvas.width = WF_BINS;
+  waterfallCanvas.width = _wfBins;
   waterfallCanvas.height = WF_ROWS;
   _wfCtx = waterfallCanvas.getContext('2d');
-  _wfImageData = _wfCtx.createImageData(WF_BINS, WF_ROWS);
+  _wfImageData = _wfCtx.createImageData(_wfBins, WF_ROWS);
   _wfImageData.data.fill(0);
-  if (wfFreqAxis) {
+  _renderWaterfallFreqAxis();
+  _setWaterfallStatus('connected');
+}
+
+function _renderWaterfallFreqAxis() {
+  if (!wfFreqAxis) return;
+  if (!_wfCenterFreqHz || !_wfBandwidthHz) {
     wfFreqAxis.innerHTML = [0,5,10,15,20,25,30].map((f) => `<span>${f}</span>`).join('');
+    return;
+  }
+  const steps = 7;
+  const low = _wfCenterFreqHz - (_wfBandwidthHz / 2);
+  const binBwHz = _wfBandwidthHz / Math.max(1, _wfBins);
+  wfFreqAxis.innerHTML = Array.from({ length: steps }, (_, i) => {
+    const frac = i / (steps - 1);
+    const bin = frac * (_wfBins - 1);
+    const hz = low + (bin * binBwHz);
+    return `<span>${(hz / 1e6).toFixed(3)}</span>`;
+  }).join('');
+}
+
+function _setWaterfallStatus(state, detail = '') {
+  if (!waterfallStatus) return;
+  waterfallStatus.className = 'waterfall-status';
+  if (state === 'receiving') {
+    waterfallStatus.classList.add('status-receiving');
+    waterfallStatus.textContent = detail || 'Receiving data';
+  } else if (state === 'mismatch') {
+    waterfallStatus.classList.add('status-mismatch');
+    waterfallStatus.textContent = detail || 'Decode/config mismatch';
+  } else {
+    waterfallStatus.classList.add('status-connected');
+    waterfallStatus.textContent = detail || 'Connected · waiting for data';
   }
 }
 
@@ -675,13 +894,13 @@ function _dbToRgba(db) {
 }
 
 function _pushWaterfallRow(bins) {
-  if (!_wfCtx || !_wfImageData || bins.length < WF_BINS) return;
+  if (!_wfCtx || !_wfImageData || bins.length < _wfBins) return;
   // Scroll existing rows up by 1 (shift pixel data up by WF_BINS*4 bytes)
   const data = _wfImageData.data;
-  data.copyWithin(0, WF_BINS * 4);
+  data.copyWithin(0, _wfBins * 4);
   // Write new row at bottom
-  const baseIdx = (WF_ROWS - 1) * WF_BINS * 4;
-  for (let i = 0; i < WF_BINS; i++) {
+  const baseIdx = (WF_ROWS - 1) * _wfBins * 4;
+  for (let i = 0; i < _wfBins; i++) {
     const [r, g, b] = _dbToRgba(bins[i]);
     const idx = baseIdx + i * 4;
     data[idx] = r; data[idx + 1] = g; data[idx + 2] = b; data[idx + 3] = 255;
@@ -745,9 +964,13 @@ function _addFoxSources() {
       'circle-stroke-width': 2.5,
       'circle-stroke-color': '#fff',
     } });
-  map.addLayer({ id: 'fox-target-label', type: 'symbol', source: 'fox-targets',
-    layout: { 'text-field': ['get', 'freq_label'], 'text-size': 9, 'text-offset': [0, 1.6] },
-    paint: { 'text-color': '#4ade80', 'text-halo-color': '#000', 'text-halo-width': 1 } });
+  if (_hasValidGlyphs()) {
+    map.addLayer({ id: 'fox-target-label', type: 'symbol', source: 'fox-targets',
+      layout: { 'text-field': ['get', 'freq_label'], 'text-font': ['Noto Sans Regular'], 'text-size': 9, 'text-offset': [0, 1.6] },
+      paint: { 'text-color': '#4ade80', 'text-halo-color': '#000', 'text-halo-width': 1 } });
+  } else {
+    console.warn('Map style glyphs unavailable; skipping fox target symbol labels.');
+  }
 
   // Click handler for fox targets
   map.on('click', 'fox-target-layer', (e) => {
@@ -846,12 +1069,7 @@ function _handleSseEvent(ev) {
       _bearingObs.push({ lat: ev.lat, lon: ev.lon, bearing_deg: ev.bearing_deg });
       _updateBearingRaySource();
       if (foxObsCount)
-        foxObsCount.textContent = `${ev.total_bearings} bearing(s) logged`;
-      if (ev.auto && autoBearingStatus) {
-        autoBearingStatus.style.display = 'block';
-        autoBearingStatus.textContent =
-          `Auto-bearing: ${ev.bearing_deg?.toFixed(1)}° (${ev.method}, conf=${(ev.confidence * 100).toFixed(0)}%)`;
-      }
+        foxObsCount.textContent = `${ev.total_bearings} bearing(s) logged${ev.source ? ` · ${ev.source}` : ''}`;
       break;
 
     case 'estimate_updated': {
@@ -875,20 +1093,57 @@ function _handleSseEvent(ev) {
         const existing = src._data?.features || [];
         ev.feature.properties.freq_label = `${(ev.freq_hz / 1e6).toFixed(2)} MHz`;
         existing.push(ev.feature);
-        src.setData({ type: 'FeatureCollection', features: existing });
+        health.counts.fox_targets = existing.length;
+        _safeSetSourceData('fox-targets', { type: 'FeatureCollection', features: existing }, 'fox_targets');
       }
       // Add to confirmed list panel
       _addConfirmedItem(ev);
       // Clear bearing rays for next target
       _bearingObs.length = 0;
       _updateBearingRaySource();
+      _renderHealth();
       break;
     }
 
     case 'sdr_frame': {
-      const bins = ev.bins || ev.bins_db;
-      if (bins && bins.length >= WF_BINS) {
-        _pushWaterfallRow(bins);
+      const bins = ev.fft_bins || ev.bins || ev.bins_db;
+      const provenance = ev.source_provenance || ev.provenance || 'unknown';
+      const centerHz = Number(ev.center_freq_hz);
+      const bwHz = Number(ev.span_hz || ev.bw_hz || ev.sample_rate_hz);
+      const nodeKey = `${ev?.source?.host || ev.node || 'unknown'}:${ev?.source?.port || 8073}`;
+      const frameSeq = Number(ev.frame_seq);
+      if (!Array.isArray(bins) || bins.length < 4) {
+        _wfDecodeMismatchCount += 1;
+        _setWaterfallStatus('mismatch', 'Decode/config mismatch: missing waterfall bins');
+        break;
+      }
+      if (!Number.isFinite(centerHz) || !Number.isFinite(bwHz) || bwHz <= 0) {
+        _wfDecodeMismatchCount += 1;
+        _setWaterfallStatus('mismatch', 'Decode/config mismatch: invalid center frequency/sample rate');
+        break;
+      }
+      if (_wfBins !== bins.length) {
+        _wfBins = bins.length;
+        _initWaterfall();
+      }
+      if (Number.isFinite(frameSeq)) {
+        const prevSeq = _wfLastSeqByNode.get(nodeKey);
+        if (Number.isFinite(prevSeq) && frameSeq > (prevSeq + 1)) {
+          _wfDroppedFrameCount += (frameSeq - prevSeq - 1);
+        }
+        _wfLastSeqByNode.set(nodeKey, frameSeq);
+      }
+      _wfCenterFreqHz = centerHz;
+      _wfBandwidthHz = bwHz;
+      _renderWaterfallFreqAxis();
+      _pushWaterfallRow(bins);
+      _wfLastFrameAt = Date.now();
+      _setWaterfallStatus(
+        'receiving',
+        `Receiving data (${provenance}) · ${_wfBins} bins · ${(centerHz/1e6).toFixed(3)} MHz center · ${(bwHz/1e3).toFixed(1)} kHz span · dropped ${_wfDroppedFrameCount}`
+      );
+      if (_wfDecodeMismatchCount > 0) {
+        _wfDecodeMismatchCount = 0;
       }
       break;
     }
@@ -932,6 +1187,18 @@ function _handleSseEvent(ev) {
 
   }
 }
+
+setInterval(() => {
+  if (!_sseConnected) {
+    _setWaterfallStatus('mismatch', 'Decode/config mismatch: SSE disconnected');
+    return;
+  }
+  if (_wfLastFrameAt === 0 || (Date.now() - _wfLastFrameAt) > _wfStaleTimeoutMs) {
+    const staleMs = _wfLastFrameAt === 0 ? null : (Date.now() - _wfLastFrameAt);
+    const staleNote = staleMs == null ? 'waiting for data' : `stale stream timeout (${Math.round(staleMs / 1000)}s)`;
+    _setWaterfallStatus('connected', `Connected · ${staleNote} · dropped ${_wfDroppedFrameCount}`);
+  }
+}, 3000);
 
 // ── Ellipse polygon helper ────────────────────────────────────────────────
 function _buildEllipseCoords(lat, lon, majorM, minorM, angleDeg = 0, steps = 48) {
@@ -1031,8 +1298,25 @@ addBearingBtn?.addEventListener('click', async () => {
   await fetch('/api/foxhunt/auto/observe', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ bearing_deg: bearing, snr_db: snr, lat, lon }),
+    body: JSON.stringify({ bearing_deg: bearing, snr_db: snr, lat, lon, source: 'manual' }),
   }).catch(() => {});
+});
+
+autoHuntToggle?.addEventListener('click', async () => {
+  const lat = parseFloat(foxLatEl?.value || '0');
+  const lon = parseFloat(foxLonEl?.value || '0');
+  if (!_autoHuntEnabled) {
+    await fetch('/api/foxhunt/autonomous/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat, lon }),
+    }).catch(() => {});
+    _autoHuntEnabled = true;
+  } else {
+    await fetch('/api/foxhunt/autonomous/stop', { method: 'POST' }).catch(() => {});
+    _autoHuntEnabled = false;
+  }
+  autoHuntToggle.textContent = `Auto Hunt: ${_autoHuntEnabled ? 'ON' : 'OFF'}`;
 });
 
 rediscoverBtn?.addEventListener('click', async () => {
@@ -1114,6 +1398,16 @@ async function _refreshFoxStatus() {
       if (foxTargetFreq) foxTargetFreq.textContent = `${(s.target.freq_hz / 1e6).toFixed(3)} MHz`;
       if (foxTargetMeta) foxTargetMeta.textContent = `${s.target.band_label} · ${s.target.modulation_hint}`;
       if (foxObsCount) foxObsCount.textContent = `${s.target.bearing_obs_count} bearing(s) · ${s.target.rssi_obs_count} RSSI`;
+    }
+    if (_autoHuntEnabled) {
+      const cycle = await fetch('/api/foxhunt/autonomous/cycle', { method: 'POST' }).then((r) => r.json()).catch(() => null);
+      if (cycle?.phase && autoPolicyPhase) autoPolicyPhase.textContent = `Policy phase: ${cycle.phase}`;
+    }
+    const auto = await fetch('/api/foxhunt/autonomous/status').then((r) => r.json()).catch(() => null);
+    if (auto?.policy) {
+      _autoHuntEnabled = Boolean(auto.policy.running);
+      if (autoHuntToggle) autoHuntToggle.textContent = `Auto Hunt: ${_autoHuntEnabled ? 'ON' : 'OFF'}`;
+      if (autoPolicyPhase) autoPolicyPhase.textContent = `Policy phase: ${auto.policy.phase || 'IDLE'}`;
     }
   } catch {}
 }
