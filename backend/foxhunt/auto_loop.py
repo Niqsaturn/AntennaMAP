@@ -275,7 +275,8 @@ class AutoFoxHuntLoop:
                 elif state == "ACQUIRING":
                     self._do_acquire()
                 elif state == "COLLECTING":
-                    # Wait for manual bearings; auto-advance after timeout
+                    # Try automated bearing first; fallback to timed wait for manual input
+                    self._do_auto_bearing()
                     time.sleep(self.scan_interval_s)
                     with self._lock:
                         target = self._state.target
@@ -381,6 +382,43 @@ class AutoFoxHuntLoop:
             "message": f"{len(nodes_with_gps)} node(s) with GPS. Add bearing observations.",
         })
 
+    def _do_auto_bearing(self) -> None:
+        """Attempt automated bearing from multi-node RSSI gradient."""
+        with self._lock:
+            target = self._state.target
+            rssi_obs = list(target.rssi_obs) if target else []
+        if not target or not rssi_obs:
+            return
+        try:
+            from backend.analysis.auto_bearing import compute_auto_bearing
+            node_obs = [
+                {"lat": o.lat, "lon": o.lon, "rssi_dbm": o.rssi_dbm}
+                for o in rssi_obs
+            ]
+            result = compute_auto_bearing(node_obs, target.freq_hz)
+            if result.confidence < 0.1:
+                return
+            obs = BearingObs(
+                lat=self._op_lat, lon=self._op_lon,
+                bearing_deg=result.bearing_deg,
+                snr_db=max(1.0, (1.0 - result.sigma_deg / 90.0) * 20.0),
+                freq_hz=target.freq_hz,
+            )
+            with self._lock:
+                target.bearing_obs.append(obs)
+            _emit("bearing_added", {
+                "lat": self._op_lat, "lon": self._op_lon,
+                "bearing_deg": result.bearing_deg,
+                "snr_db": obs.snr_db,
+                "freq_hz": target.freq_hz,
+                "total_bearings": len(target.bearing_obs),
+                "auto": True,
+                "method": result.method,
+                "confidence": result.confidence,
+            })
+        except Exception as exc:
+            logger.debug("auto_bearing: %s", exc)
+
     def _try_solve(self) -> None:
         """Run the multilateration solver on current observations."""
         with self._lock:
@@ -442,6 +480,13 @@ class AutoFoxHuntLoop:
         with self._lock:
             self._confirmed_freqs.add(target.freq_hz)
             self._state.confirmed_targets.append(target)
+
+        # Register with continuous corrector for periodic re-verification
+        try:
+            from backend.analysis.continuous_corrector import corrector
+            corrector.watch(fid, target.freq_hz)
+        except Exception:
+            pass
 
         _emit("target_pinned", {
             "feature_id": fid,

@@ -27,6 +27,8 @@
     <label><input id="coverageToggle" type="checkbox"> US Coverage Grid</label>
     <label><input id="satelliteToggle" type="checkbox"> Satellites</label>
     <label><input id="bayesToggle" type="checkbox"> Bayes Posterior</label>
+    <label><input id="emFieldToggle" type="checkbox"> EM Field Overlays</label>
+    <label><input id="beamPatternToggle" type="checkbox"> Beam Patterns</label>
 
     <div class="section-header">Time</div>
     <label for="timeRange">Time cutoff</label>
@@ -111,13 +113,20 @@
     <div class="section-header" style="margin-top:10px">Confirmed Targets</div>
     <div id="confirmedList" class="confirmed-list"></div>
 
-    <!-- Waterfall -->
+    <!-- Auto-bearing status -->
+    <div id="autoBearingStatus" class="auto-bearing-status" style="display:none"></div>
+
+    <!-- Waterfall mosaic -->
     <div class="section-header collapsible" id="waterfallHeader" style="margin-top:10px">
-      Waterfall (0–30 MHz) ▾
+      Spectrum Waterfall ▾
     </div>
     <div id="waterfallContainer" class="waterfall-container">
+      <div class="wf-band-label">HF (0–30 MHz)</div>
       <canvas id="waterfallCanvas" class="waterfall-canvas"></canvas>
       <div id="waterfallFreqAxis" class="wf-freq-axis"></div>
+      <div class="wf-band-label" id="vhfBandLabel" style="display:none">VHF/UHF</div>
+      <canvas id="waterfallCanvasVhf" class="waterfall-canvas" style="display:none"></canvas>
+      <div id="waterfallFreqAxisVhf" class="wf-freq-axis" style="display:none"></div>
     </div>
 
     <div class="section-header collapsible" id="peakListHeader" style="margin-top:6px">
