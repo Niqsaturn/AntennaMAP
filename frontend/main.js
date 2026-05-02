@@ -24,16 +24,27 @@ const map = new maplibregl.Map({
   center: [0, 20], zoom: 1.8, pitch: 0, bearing: 0, antialias: true,
 });
 
+const _oneShotDiagnostics = new Set();
+function _diagOnce(key, message, err = null) {
+  if (_oneShotDiagnostics.has(key)) return;
+  _oneShotDiagnostics.add(key);
+  if (err) console.warn(message, err);
+  else console.warn(message);
+}
+
 // Globe slow-spin - paused while user interacts
 let _spinActive = true;
 let _spinResumeTimer = null;
+let _globeSpinSupported = false;
 function _spinGlobe() {
+  if (!_globeSpinSupported) return;
   try {
     if (_spinActive && map.getZoom() < 5) {
       map.setCenter([map.getCenter().lng + 0.06, map.getCenter().lat]);
     }
   } catch (e) {
-    // silently fail spin on globe mode
+    _globeSpinSupported = false;
+    _diagOnce('spin-runtime', 'Globe spin disabled due to runtime map capability mismatch.', e);
   }
   requestAnimationFrame(_spinGlobe);
 }
@@ -451,23 +462,42 @@ function setupGoToLatLon() {
 }
 // ── Map load ───────────────────────────────────────────────────────────────
 map.on('load', async () => {
-  // Setup globe fog (when supported) and spin
+  // Setup globe fog/spin only when capabilities are available.
+  const canGetProjection = typeof map.getProjection === 'function';
   const canSetFog = typeof map.setFog === 'function';
   const projection = typeof map.getProjection === 'function' ? map.getProjection() : null;
   const projectionName = projection && typeof projection === 'object' ? projection.name : null;
-  const fogCompatibleProjection = !projectionName || projectionName === 'globe';
+  const isGlobeProjection = projectionName === 'globe';
+  const fogCompatibleProjection = !projectionName || isGlobeProjection;
 
   if (canSetFog && fogCompatibleProjection) {
-    map.setFog({
-      color: 'rgba(15,23,42,0.85)',
-      'high-color': '#1e3a5f',
-      'horizon-blend': 0.04,
-      'space-color': '#0f172a',
-      'star-intensity': 0.35,
-    });
+    try {
+      map.setFog({
+        color: 'rgba(15,23,42,0.85)',
+        'high-color': '#1e3a5f',
+        'horizon-blend': 0.04,
+        'space-color': '#0f172a',
+        'star-intensity': 0.35,
+      });
+    } catch (err) {
+      _diagOnce('fog-runtime', 'Fog unsupported at runtime; continuing without fog.', err);
+    }
+  } else {
+    _diagOnce(
+      'fog-capability',
+      `Fog unavailable (setFog=${canSetFog}, projection=${projectionName || 'unknown'}); continuing without fog.`
+    );
   }
 
-  requestAnimationFrame(_spinGlobe);
+  _globeSpinSupported = canGetProjection && isGlobeProjection;
+  if (_globeSpinSupported) {
+    requestAnimationFrame(_spinGlobe);
+  } else {
+    _diagOnce(
+      'spin-capability',
+      `Globe spin unavailable (getProjection=${canGetProjection}, projection=${projectionName || 'unknown'}); continuing without globe spin.`
+    );
+  }
 
   map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
   map.addControl(new maplibregl.GeolocateControl({
