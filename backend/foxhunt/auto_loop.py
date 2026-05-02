@@ -326,7 +326,8 @@ class AutoFoxHuntLoop:
                 elif state == "ACQUIRING":
                     self._do_acquire()
                 elif state == "COLLECTING":
-                    # Wait for manual bearings; auto-advance after timeout
+                    # Try automated bearing first; fallback to timed wait for manual input
+                    self._do_auto_bearing()
                     time.sleep(self.scan_interval_s)
                     with self._lock:
                         target = self._state.target
@@ -585,6 +586,13 @@ class AutoFoxHuntLoop:
         with self._lock:
             self._confirmed_freqs.add(target.freq_hz)
             self._state.confirmed_targets.append(target)
+
+        # Register with continuous corrector for periodic re-verification
+        try:
+            from backend.analysis.continuous_corrector import corrector
+            corrector.watch(fid, target.freq_hz)
+        except Exception:
+            pass
 
         _emit("target_pinned", {
             "feature_id": fid,

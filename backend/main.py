@@ -1886,6 +1886,18 @@ async def _capture_loop() -> None:
         _asyncio.create_task(node_pool_auto_populate_loop())
     except Exception:
         pass
+    # Multi-band spectrum mosaic loop
+    try:
+        from backend.sdr.spectrum_mosaic import spectrum_mosaic_loop
+        _asyncio.create_task(spectrum_mosaic_loop())
+    except Exception:
+        pass
+    # Start continuous corrector background thread
+    try:
+        from backend.analysis.continuous_corrector import corrector
+        corrector.start()
+    except Exception:
+        pass
 
 
 async def node_pool_auto_populate_loop() -> None:
@@ -1930,6 +1942,48 @@ async def sse_events(request: _Request):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ── Spectrum mosaic ───────────────────────────────────────────────────────────
+
+@app.get("/api/spectrum/mosaic")
+def spectrum_mosaic_latest():
+    """Return the latest multi-band spectrum mosaic frame."""
+    try:
+        from backend.sdr.spectrum_mosaic import spectrum_mosaic
+        frame = spectrum_mosaic.get_latest()
+        return {
+            "ts": frame.ts,
+            "segments": [
+                {
+                    "center_freq_hz": s.center_freq_hz,
+                    "bandwidth_hz": s.bandwidth_hz,
+                    "bins_db": s.bins_db,
+                    "source": s.source,
+                    "node": s.node,
+                }
+                for s in frame.sorted_segments()
+            ],
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── EM fields ─────────────────────────────────────────────────────────────────
+
+@app.get("/api/em_fields")
+def get_em_fields():
+    """Return all EM field overlay features as a GeoJSON FeatureCollection."""
+    try:
+        from backend.storage.map_store import get_all_features
+        fc = get_all_features(limit=500)
+        em_features = [
+            f for f in fc.get("features", [])
+            if f.get("properties", {}).get("kind") == "em_field"
+        ]
+        return {"type": "FeatureCollection", "features": em_features}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # ── KiwiSDR node management ───────────────────────────────────────────────────

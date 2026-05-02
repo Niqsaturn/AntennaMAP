@@ -810,6 +810,68 @@ function _setWaterfallStatus(state, detail = '') {
   }
 }
 
+function _initVhfWaterfall(centerMhz, bwMhz) {
+  if (!waterfallCanvasVhf) return;
+  waterfallCanvasVhf.width = WF_BINS;
+  waterfallCanvasVhf.height = WF_ROWS;
+  waterfallCanvasVhf.style.display = 'block';
+  if (vhfBandLabel) vhfBandLabel.style.display = 'block';
+  if (wfFreqAxisVhf) wfFreqAxisVhf.style.display = 'flex';
+  _wfVhfCtx = waterfallCanvasVhf.getContext('2d');
+  _wfVhfImageData = _wfVhfCtx.createImageData(WF_BINS, WF_ROWS);
+  _wfVhfImageData.data.fill(0);
+  if (wfFreqAxisVhf && bwMhz) {
+    const start = centerMhz - bwMhz / 2;
+    const end = centerMhz + bwMhz / 2;
+    const steps = 5;
+    const labels = Array.from({ length: steps + 1 }, (_, i) =>
+      `<span>${(start + (i * bwMhz) / steps).toFixed(0)}</span>`
+    );
+    wfFreqAxisVhf.innerHTML = labels.join('');
+  }
+}
+
+function _renderMosaicFrame(segments) {
+  if (!segments || !segments.length) return;
+  const hf = segments.find((s) => s.center_freq_hz < 50e6);
+  const vhf = segments.find((s) => s.center_freq_hz >= 50e6);
+  if (hf && hf.bins_db && hf.bins_db.length >= WF_BINS) {
+    _pushWaterfallRow(hf.bins_db);
+  }
+  if (vhf && vhf.bins_db && vhf.bins_db.length >= 64) {
+    if (!_wfVhfCtx) {
+      _initVhfWaterfall(vhf.center_freq_hz / 1e6, vhf.bandwidth_hz / 1e6);
+    }
+    _pushVhfWaterfallRow(vhf.bins_db);
+  }
+}
+
+function _pushVhfWaterfallRow(bins) {
+  if (!_wfVhfCtx || !_wfVhfImageData) return;
+  const data = _wfVhfImageData.data;
+  data.copyWithin(0, WF_BINS * 4);
+  const baseIdx = (WF_ROWS - 1) * WF_BINS * 4;
+  const srcBins = bins.length >= WF_BINS ? bins : _resampleBins(bins, WF_BINS);
+  for (let i = 0; i < WF_BINS; i++) {
+    const [r, g, b] = _dbToRgba(srcBins[i]);
+    const idx = baseIdx + i * 4;
+    data[idx] = r; data[idx + 1] = g; data[idx + 2] = b; data[idx + 3] = 255;
+  }
+  _wfVhfCtx.putImageData(_wfVhfImageData, 0, 0);
+}
+
+function _resampleBins(bins, targetLen) {
+  const result = new Array(targetLen);
+  for (let i = 0; i < targetLen; i++) {
+    const srcIdx = (i / targetLen) * bins.length;
+    const lo = Math.floor(srcIdx);
+    const hi = Math.min(lo + 1, bins.length - 1);
+    const t = srcIdx - lo;
+    result[i] = bins[lo] * (1 - t) + bins[hi] * t;
+  }
+  return result;
+}
+
 // Map dB value to RGBA colour (dark blue → cyan → yellow → red)
 function _dbToRgba(db) {
   // Normalise -127..−13 dBm → 0..1
@@ -858,6 +920,8 @@ function _addFoxSources() {
   map.addSource('fox-ellipses', { type: 'geojson', data: empty });
   map.addSource('fox-bearings', { type: 'geojson', data: empty });
   map.addSource('bayes-field',  { type: 'geojson', data: empty });
+  map.addSource('em-fields',    { type: 'geojson', data: empty });
+  map.addSource('beam-patterns', { type: 'geojson', data: empty });
 
   // Bayesian posterior heatmap (rendered below fox layers)
   map.addLayer({ id: 'bayes-fill', type: 'fill', source: 'bayes-field',
@@ -871,6 +935,16 @@ function _addFoxSources() {
       ],
       'fill-opacity': 1,
     } });
+
+  // EM field overlays
+  map.addLayer({ id: 'em-fields-fill', type: 'fill', source: 'em-fields',
+    layout: { visibility: 'none' },
+    paint: { 'fill-color': 'rgba(251,191,36,0.12)', 'fill-outline-color': 'rgba(251,191,36,0.6)' } });
+
+  // Beam pattern lines
+  map.addLayer({ id: 'beam-patterns-line', type: 'line', source: 'beam-patterns',
+    layout: { visibility: 'none' },
+    paint: { 'line-color': '#fb923c', 'line-width': 1.5, 'line-dasharray': [4, 2] } });
 
   // Uncertainty ellipses (fill + outline)
   map.addLayer({ id: 'fox-ellipse-fill', type: 'fill', source: 'fox-ellipses',
@@ -1073,6 +1147,44 @@ function _handleSseEvent(ev) {
       }
       break;
     }
+
+    case 'spectrum_mosaic':
+      _renderMosaicFrame(ev.segments);
+      break;
+
+    case 'em_field_updated': {
+      const src = map.getSource('em-fields');
+      if (src && ev.geometry) {
+        const existing = src._data?.features || [];
+        const newFeat = {
+          type: 'Feature',
+          geometry: ev.geometry,
+          properties: { feature_id: ev.feature_id },
+        };
+        const idx = existing.findIndex((f) => f.properties?.feature_id === ev.feature_id);
+        if (idx >= 0) existing[idx] = newFeat;
+        else existing.push(newFeat);
+        src.setData({ type: 'FeatureCollection', features: existing });
+      }
+      break;
+    }
+
+    case 'feature_corrected': {
+      // Flash the corrected feature briefly
+      const src = map.getSource('fox-targets');
+      if (src && ev.lat && ev.lon) {
+        const data = src._data;
+        if (data) {
+          const f = data.features?.find((ft) => ft.properties?.id === ev.feature_id);
+          if (f) {
+            f.geometry.coordinates = [ev.lon, ev.lat];
+            src.setData(data);
+          }
+        }
+      }
+      break;
+    }
+
   }
 }
 
@@ -1237,6 +1349,25 @@ bayesToggle?.addEventListener('change', () => {
   try { map.setLayoutProperty('bayes-fill', 'visibility', vis); } catch {}
   if (bayesToggle.checked) refreshBayesField();
 });
+
+emFieldToggle?.addEventListener('change', () => {
+  const vis = emFieldToggle.checked ? 'visible' : 'none';
+  try { map.setLayoutProperty('em-fields-fill', 'visibility', vis); } catch {}
+  if (emFieldToggle.checked) _loadEmFields();
+});
+
+beamPatternToggle?.addEventListener('change', () => {
+  const vis = beamPatternToggle.checked ? 'visible' : 'none';
+  try { map.setLayoutProperty('beam-patterns-line', 'visibility', vis); } catch {}
+});
+
+async function _loadEmFields() {
+  try {
+    const data = await fetch('/api/em_fields').then((r) => r.json());
+    const src = map.getSource('em-fields');
+    if (src) src.setData(data);
+  } catch {}
+}
 
 async function refreshBayesField() {
   if (!bayesToggle?.checked) return;

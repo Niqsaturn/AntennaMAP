@@ -201,20 +201,29 @@ def predict_error(model: dict[str, Any], samples: list[TelemetrySample]) -> floa
 
 def parse_samples(payload: list[dict[str, Any]]) -> list[TelemetrySample]:
     """Parse dicts into TelemetrySample objects with defensive defaults."""
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
     samples = []
     for row in payload:
         try:
+            # Accept both "bearing_estimate_deg" (canonical) and legacy "bearing_deg"
+            bearing = float(
+                row.get("bearing_estimate_deg") if row.get("bearing_estimate_deg") is not None
+                else row.get("bearing_deg", 0.0)
+            )
             samples.append(TelemetrySample(
                 timestamp=row.get("timestamp", ""),
                 lat=float(row.get("lat", 0.0)),
                 lon=float(row.get("lon", 0.0)),
-                bearing_deg=float(row.get("bearing_deg", 0.0)),
+                heading_deg=float(row.get("heading_deg", bearing)),
+                bearing_estimate_deg=bearing,
+                rssi_dbm=float(row.get("rssi_dbm", -100.0)),
+                snr_db=float(row.get("snr_db", 10.0)),
                 frequency_hz=float(row.get("frequency_hz", 100e6)),
                 bandwidth_hz=float(row.get("bandwidth_hz", 3000.0)),
-                snr_db=float(row.get("snr_db", 10.0)),
             ))
         except (KeyError, ValueError, TypeError) as e:
-            logger.warning("skipping malformed sample: %s", e)
+            _logger.warning("skipping malformed sample: %s", e)
             continue
     return samples
 
