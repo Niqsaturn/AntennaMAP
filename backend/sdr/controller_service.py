@@ -138,6 +138,7 @@ class SdrControllerService:
                     "rssi_dbm": f.rssi_dbm,
                     "snr_db": f.snr_db,
                     "waterfall_psd_bins_db": f.psd_bins_db,
+                    "source_provenance": f.source_provenance,
                     "metadata": f.metadata,
                 }
                 for f in frames
