@@ -151,6 +151,7 @@ class AutoFoxHuntLoop:
         self.scan_interval_s: float = 15.0
         # Min observations before attempting solve
         self.min_obs_to_solve: int = 2
+        self.min_auto_bearing_snr_db: float = 3.0
 
     # ── External control ──────────────────────────────────────────────────────
 
@@ -380,14 +381,72 @@ class AutoFoxHuntLoop:
         })
         _emit("fox_state", {
             "state": "COLLECTING",
-            "message": f"{len(nodes_with_gps)} node(s) with GPS. Add bearing observations.",
+            "message": f"{len(nodes_with_gps)} node(s) with GPS. Auto-generating bearings (manual override optional).",
         })
+
+    def _auto_add_bearings_from_sdr(self, target: FoxTarget) -> int:
+        """Generate synthetic bearings from SDR node geometry + RSSI evidence."""
+        if not target.rssi_obs:
+            return 0
+
+        # Prefer high-SNR/strong readings to avoid noisy synthetic geometry.
+        best_rssi = max(o.rssi_dbm for o in target.rssi_obs)
+        threshold = best_rssi - 8.0
+        candidates = [o for o in target.rssi_obs if o.rssi_dbm >= threshold]
+        if len(candidates) < 2:
+            return 0
+
+        # Weighted centroid estimate of likely TX location.
+        weights = [max(1e-3, math.pow(10.0, o.rssi_dbm / 10.0)) for o in candidates]
+        wsum = sum(weights)
+        lat_est = sum(w * o.lat for w, o in zip(weights, candidates)) / wsum
+        lon_est = sum(w * o.lon for w, o in zip(weights, candidates)) / wsum
+
+        added = 0
+        for o in candidates:
+            # Bearing from node -> centroid estimate.
+            dlon = math.radians(lon_est - o.lon)
+            lat1 = math.radians(o.lat)
+            lat2 = math.radians(lat_est)
+            y = math.sin(dlon) * math.cos(lat2)
+            x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
+            bearing_deg = (math.degrees(math.atan2(y, x)) + 360.0) % 360.0
+            snr_proxy = max(0.0, o.rssi_dbm - threshold)
+            if snr_proxy < self.min_auto_bearing_snr_db:
+                continue
+
+            target.bearing_obs.append(BearingObs(
+                lat=o.lat,
+                lon=o.lon,
+                bearing_deg=bearing_deg,
+                snr_db=snr_proxy,
+                freq_hz=target.freq_hz,
+                source="sdr_auto",
+            ))
+            added += 1
+        return added
 
     def _try_solve(self) -> None:
         """Run the multilateration solver on current observations."""
         with self._lock:
             target = self._state.target
             if target is None:
+                return
+            auto_added = self._auto_add_bearings_from_sdr(target)
+            if auto_added:
+                _emit("bearing_added", {
+                    "freq_hz": target.freq_hz,
+                    "total_bearings": len(target.bearing_obs),
+                    "source": "sdr_auto",
+                    "auto_added": auto_added,
+                })
+
+            # Quality gate: need enough total evidence, with at least one meaningful bearing.
+            rssi_count = len(target.rssi_obs)
+            bearing_count = len(target.bearing_obs)
+            strong_bearings = [o for o in target.bearing_obs if o.snr_db >= self.min_auto_bearing_snr_db or o.source == "manual"]
+            if (rssi_count + bearing_count) < self.min_obs_to_solve or not strong_bearings:
+                self._state.state = "COLLECTING"
                 return
             self._state.state = "SOLVING"
 
