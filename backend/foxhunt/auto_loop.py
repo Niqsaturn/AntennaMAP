@@ -230,6 +230,21 @@ class AutoFoxHuntLoop:
             threading.Thread(target=self._try_solve, daemon=True).start()
         return {"ok": True, "total_bearings": n}
 
+
+    def _policy_snapshot(self) -> dict:
+        """Best-effort snapshot of autonomous policy runtime state."""
+        try:
+            from backend.foxhunt.policy import auto_policy
+            policy_status = auto_policy.status()
+            decision = policy_status.get("last_decision") or {}
+            return {
+                "phase": policy_status.get("phase", "IDLE"),
+                "last_action": decision.get("phase"),
+                "action_confidence": decision.get("confidence"),
+            }
+        except Exception:
+            return {"phase": "IDLE", "last_action": None, "action_confidence": None}
+
     def status(self) -> dict:
         with self._lock:
             st = self._state
@@ -245,6 +260,7 @@ class AutoFoxHuntLoop:
                     "confirmed": t.confirmed,
                     "fix": _fix_to_dict(t.fix) if t.fix else None,
                 }
+            policy = self._policy_snapshot()
             return {
                 "running": self._running,
                 "state": st.state,
@@ -255,6 +271,9 @@ class AutoFoxHuntLoop:
                 "confirmed_count": len(st.confirmed_targets),
                 "last_event": st.last_event,
                 "error": st.error,
+                "policy_phase": policy["phase"],
+                "policy_last_action": policy["last_action"],
+                "policy_action_confidence": policy["action_confidence"],
             }
 
     def confirmed_features(self) -> list[dict]:
@@ -271,6 +290,9 @@ class AutoFoxHuntLoop:
                 with self._lock:
                     state = self._state.state
                     self._state.cycles += 1
+                    cycles = self._state.cycles
+
+                self._execute_policy_cycle(cycles=cycles, state=state)
 
                 if state == "SCANNING":
                     self._do_scan()
@@ -300,6 +322,26 @@ class AutoFoxHuntLoop:
                 with self._lock:
                     self._state.error = str(exc)
                 time.sleep(5.0)
+
+
+    def _execute_policy_cycle(self, cycles: int, state: str) -> None:
+        """Run autonomous policy once per loop cycle and emit telemetry."""
+        try:
+            from backend.foxhunt.policy import auto_policy
+            result = auto_policy.execute_cycle()
+            decision = result.get("decision") or {}
+            _emit("policy_cycle", {
+                "cycle": cycles,
+                "loop_state": state,
+                "ok": result.get("ok", False),
+                "reason": result.get("reason"),
+                "policy_phase": result.get("phase", auto_policy.phase),
+                "policy_last_action": decision.get("phase"),
+                "policy_action_confidence": decision.get("confidence"),
+                "promoted_target": result.get("promoted_target", False),
+            })
+        except Exception as exc:
+            logger.debug("auto_loop: policy cycle skipped: %s", exc)
 
     def _do_scan(self) -> None:
         """Poll all KiwiSDR nodes for signal peaks."""

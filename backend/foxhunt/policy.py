@@ -24,6 +24,7 @@ class AutoHuntPolicy:
         self.phase: PolicyPhase = "IDLE"
         self.last_action_at: datetime | None = None
         self.max_actions_per_minute = 8
+        self.last_decision: PolicyDecision | None = None
         self.stale_data_timeout_s = 45
         self.target_promote_threshold = 0.82
 
@@ -45,6 +46,7 @@ class AutoHuntPolicy:
             "stale_data_timeout_s": self.stale_data_timeout_s,
             "target_promote_threshold": self.target_promote_threshold,
             "last_action_at": self.last_action_at.isoformat() if self.last_action_at else None,
+            "last_decision": self.last_decision.__dict__ if self.last_decision else None,
         }
 
     def choose_action(self, loop_status: dict) -> PolicyDecision:
@@ -73,6 +75,7 @@ class AutoHuntPolicy:
             return {"ok": False, "reason": "policy not running", **self.status()}
         loop_status = auto_loop.status()
         decision = self.choose_action(loop_status)
+        self.last_decision = decision
         self.phase = decision.phase
         now = datetime.now(timezone.utc)
         if self._rate_limited(now):
