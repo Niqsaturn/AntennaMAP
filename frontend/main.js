@@ -661,6 +661,9 @@ let _wfCenterFreqHz = null;
 let _wfBandwidthHz = null;
 let _wfLastFrameAt = 0;
 let _wfDecodeMismatchCount = 0;
+let _wfLastSeqByNode = new Map();
+let _wfDroppedFrameCount = 0;
+const _wfStaleTimeoutMs = 15000;
 
 function _initWaterfall() {
   if (!waterfallCanvas) return;
@@ -923,9 +926,11 @@ function _handleSseEvent(ev) {
     }
 
     case 'sdr_frame': {
-      const bins = ev.bins || ev.bins_db;
+      const bins = ev.fft_bins || ev.bins || ev.bins_db;
       const centerHz = Number(ev.center_freq_hz);
-      const bwHz = Number(ev.bw_hz || ev.sample_rate_hz);
+      const bwHz = Number(ev.span_hz || ev.bw_hz || ev.sample_rate_hz);
+      const nodeKey = `${ev?.source?.host || ev.node || 'unknown'}:${ev?.source?.port || 8073}`;
+      const frameSeq = Number(ev.frame_seq);
       if (!Array.isArray(bins) || bins.length < 4) {
         _wfDecodeMismatchCount += 1;
         _setWaterfallStatus('mismatch', 'Decode/config mismatch: missing waterfall bins');
@@ -940,12 +945,22 @@ function _handleSseEvent(ev) {
         _wfBins = bins.length;
         _initWaterfall();
       }
+      if (Number.isFinite(frameSeq)) {
+        const prevSeq = _wfLastSeqByNode.get(nodeKey);
+        if (Number.isFinite(prevSeq) && frameSeq > (prevSeq + 1)) {
+          _wfDroppedFrameCount += (frameSeq - prevSeq - 1);
+        }
+        _wfLastSeqByNode.set(nodeKey, frameSeq);
+      }
       _wfCenterFreqHz = centerHz;
       _wfBandwidthHz = bwHz;
       _renderWaterfallFreqAxis();
       _pushWaterfallRow(bins);
       _wfLastFrameAt = Date.now();
-      _setWaterfallStatus('receiving', `Receiving data · ${_wfBins} bins · ${(centerHz/1e6).toFixed(3)} MHz center · ${(bwHz/1e3).toFixed(1)} kHz span`);
+      _setWaterfallStatus(
+        'receiving',
+        `Receiving data · ${_wfBins} bins · ${(centerHz/1e6).toFixed(3)} MHz center · ${(bwHz/1e3).toFixed(1)} kHz span · dropped ${_wfDroppedFrameCount}`
+      );
       if (_wfDecodeMismatchCount > 0) {
         _wfDecodeMismatchCount = 0;
       }
@@ -959,8 +974,10 @@ setInterval(() => {
     _setWaterfallStatus('mismatch', 'Decode/config mismatch: SSE disconnected');
     return;
   }
-  if (_wfLastFrameAt === 0 || (Date.now() - _wfLastFrameAt) > 15000) {
-    _setWaterfallStatus('connected');
+  if (_wfLastFrameAt === 0 || (Date.now() - _wfLastFrameAt) > _wfStaleTimeoutMs) {
+    const staleMs = _wfLastFrameAt === 0 ? null : (Date.now() - _wfLastFrameAt);
+    const staleNote = staleMs == null ? 'waiting for data' : `stale stream timeout (${Math.round(staleMs / 1000)}s)`;
+    _setWaterfallStatus('connected', `Connected · ${staleNote} · dropped ${_wfDroppedFrameCount}`);
   }
 }, 3000);
 
